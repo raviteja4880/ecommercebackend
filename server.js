@@ -1,17 +1,12 @@
-console.log("✅ Server.js starting...");
-
 const express = require("express");
 const mongoose = require("mongoose");
 const dotenv = require("dotenv");
 const cron = require("node-cron");
 const cors = require("cors");
 
-console.log("✅ Modules loaded");
 
 const productRoutes = require("./routes/productRoutes");
-console.log("✅ productRoutes loaded");
-
-const { syncProducts } = require("./services/syncService");
+const syncProducts  = require("./services/syncService");
 const authRoutes = require("./routes/auth");
 const cartRoutes = require("./routes/cart");
 const paymentRoutes = require("./routes/payment");
@@ -30,12 +25,10 @@ app.get("/test", (req, res) => res.json({ message: "✅ Test route working" }));
 
 // ROUTES
 app.use("/api/products", productRoutes);
-console.log("✅ Mounted /api/products");
 app.use("/api/auth", authRoutes);
 app.use("/api/cart", cartRoutes);
 app.use("/api/payment", paymentRoutes);
 app.use("/api/orders", orderRoutes);
-console.log("✅ All routes mounted");
 
 // MongoDB
 mongoose.connect(process.env.MONGO_URI)

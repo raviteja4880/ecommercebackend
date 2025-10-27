@@ -14,7 +14,7 @@ const cartItemSchema = new mongoose.Schema(
       min: [1, "Quantity must be at least 1"],
     },
   },
-  { _id: false } // ✅ Prevents duplicate _id for each item
+  { _id: false }
 );
 
 const cartSchema = new mongoose.Schema(
@@ -27,23 +27,43 @@ const cartSchema = new mongoose.Schema(
     },
     items: [cartItemSchema],
   },
-  { timestamps: true }
+  { timestamps: true, toJSON: { virtuals: true }, toObject: { virtuals: true } }
 );
 
-// ✅ Pre hook: auto-populate product details when fetching cart
+// Auto-populate product details
 cartSchema.pre(/^find/, function (next) {
   this.populate("items.product");
   next();
 });
 
-// ✅ Optional virtual: calculate total cart price dynamically
+// Virtual for total price
 cartSchema.virtual("totalPrice").get(function () {
   return this.items.reduce((acc, item) => {
     if (item.product?.price) {
-      return acc + item.qty * item.product.price;
+      acc += item.qty * item.product.price;
     }
     return acc;
   }, 0);
+});
+
+// Merge duplicate products automatically before save
+cartSchema.pre("save", function (next) {
+  if (!this.items || this.items.length === 0) return next();
+
+  const merged = [];
+  const map = new Map();
+
+  this.items.forEach((item) => {
+    const key = item.product.toString();
+    if (map.has(key)) {
+      map.get(key).qty += item.qty;
+    } else {
+      map.set(key, { product: item.product, qty: item.qty });
+    }
+  });
+
+  this.items = Array.from(map.values());
+  next();
 });
 
 module.exports = mongoose.model("Cart", cartSchema);

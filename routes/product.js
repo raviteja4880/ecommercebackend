@@ -20,7 +20,6 @@ router.get("/:id", async (req, res) => {
 
     let product = null;
 
-    // Check if id is a valid MongoDB ObjectId
     if (mongoose.Types.ObjectId.isValid(id)) {
       product = await Product.findById(id);
     }

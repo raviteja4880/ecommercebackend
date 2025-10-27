@@ -24,7 +24,7 @@ router.post("/", auth, async (req, res) => {
     const taxPrice = Number((0.18 * itemsPrice).toFixed(2));
     const totalPrice = Number((itemsPrice + shippingPrice + taxPrice).toFixed(2));
 
-    const isPaid = paymentMethod === "COD"; // ✅ COD is considered paid
+    const isPaid = paymentMethod === "COD";
     const paidAt = isPaid ? Date.now() : null;
 
     const order = new Order({
@@ -56,7 +56,7 @@ router.get("/my", auth, async (req, res) => {
   try {
     const orders = await Order.find({ user: req.user._id })
       .sort({ createdAt: -1 })
-      .populate("items.product", "name image price"); // populate product info
+      .populate("items.product", "name image price"); 
     res.json(orders);
   } catch (error) {
     console.error("My Orders Error:", error);
@@ -118,9 +118,6 @@ router.put("/:id/deliver", auth, async (req, res) => {
     const order = await Order.findById(req.params.id);
 
     if (!order) return res.status(404).json({ message: "Order not found" });
-
-    // ⚠️ Add admin check here
-    // if (!req.user.isAdmin) return res.status(403).json({ message: "Not authorized" });
 
     order.isDelivered = true;
     order.deliveredAt = Date.now();

@@ -1,12 +1,11 @@
 const jwt = require("jsonwebtoken");
-const User = require("../models/User"); // your User model
+const User = require("../models/User");
 
-// Protect routes
 const auth = async (req, res, next) => {
   try {
     let token;
 
-    // Get token from Authorization header
+    // Check for "Bearer <token>"
     if (
       req.headers.authorization &&
       req.headers.authorization.startsWith("Bearer")
@@ -24,10 +23,17 @@ const auth = async (req, res, next) => {
     // Attach user to request object
     req.user = await User.findById(decoded.id).select("-password");
 
-    next(); // allow route to continue
+    next();
   } catch (error) {
-    console.error(error);
-    res.status(401).json({ message: "Not authorized, token invalid" });
+    console.error("Auth error:", error.message);
+
+    if (error.name === "TokenExpiredError") {
+      return res.status(401).json({ message: "Token expired. Please log in again." });
+    } else if (error.name === "JsonWebTokenError") {
+      return res.status(401).json({ message: "Invalid token. Please log in again." });
+    } else {
+      return res.status(500).json({ message: "Internal server error." });
+    }
   }
 };
 

@@ -53,20 +53,27 @@ router.post("/add", auth, async (req, res) => {
     if (!product) return res.status(404).json({ message: "Product not found" });
 
     let cart = await Cart.findOne({ user: req.user._id });
-    if (!cart) cart = new Cart({ user: req.user._id, items: [] });
-
-    const itemIndex = cart.items.findIndex(
-      (x) => x.product.toString() === productId
-    );
-
-    if (itemIndex > -1) {
-      cart.items[itemIndex].qty += qty;
+    if (!cart) {
+      cart = new Cart({ user: req.user._id, items: [{ product: productId, qty }] });
     } else {
-      cart.items.push({ product: productId, qty });
+      // Check if product already exists
+      const existingItem = cart.items.find(
+        (item) => item.product.toString() === productId
+      );
+      if (existingItem) {
+        existingItem.qty += qty;
+      } else {
+        cart.items.push({ product: productId, qty });
+      }
     }
 
-    await cart.save();
-    return sendCartResponse(cart, res);
+    await cart.save(); // ✅ this triggers pre-save merge
+    const populatedCart = await Cart.findById(cart._id).populate("items.product");
+
+    res.json({
+      items: populatedCart.items,
+      totalPrice: populatedCart.totalPrice,
+    });
   } catch (error) {
     console.error(error);
     res.status(500).json({ message: "Server error" });

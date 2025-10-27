@@ -17,7 +17,7 @@ router.post("/register", async (req, res) => {
     const token = jwt.sign(
       { id: user._id, email: user.email },
       process.env.JWT_SECRET,
-      { expiresIn: "24h" } 
+      { expiresIn: "24d" } 
     );
 
     // Send response with token
@@ -38,7 +38,7 @@ router.post("/login", async (req, res) => {
   try {
     const user = await User.findOne({ email });
     if (user && (await user.matchPassword(password))) {
-      const token = jwt.sign({ id: user._id }, process.env.JWT_SECRET, { expiresIn: "24h" });
+      const token = jwt.sign({ id: user._id }, process.env.JWT_SECRET, { expiresIn: "24d" });
       res.json({
         _id: user._id,
         name: user.name,

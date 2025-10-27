@@ -5,8 +5,7 @@ const cron = require("node-cron");
 const cors = require("cors");
 
 
-const productRoutes = require("./routes/productRoutes");
-const syncProducts  = require("./services/syncService");
+const productRoutes = require("./routes/product");
 const authRoutes = require("./routes/auth");
 const cartRoutes = require("./routes/cart");
 const paymentRoutes = require("./routes/payment");
@@ -34,6 +33,10 @@ app.use("/api/orders", orderRoutes);
 mongoose.connect(process.env.MONGO_URI)
   .then(() => console.log("✅ MongoDB Connected"))
   .catch((err) => console.error("❌ MongoDB Error:", err));
+
+  app.get("/api/cart/test", (req, res) => {
+  res.json({ message: "Cart route works!" });
+});
 
 app.use((req, res) => res.status(404).json({ message: "Route not found" }));
 

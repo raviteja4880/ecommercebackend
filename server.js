@@ -4,7 +4,6 @@ const dotenv = require("dotenv");
 const cron = require("node-cron");
 const cors = require("cors");
 
-
 const productRoutes = require("./routes/product");
 const authRoutes = require("./routes/auth");
 const cartRoutes = require("./routes/cart");
@@ -16,11 +15,26 @@ const app = express();
 
 app.use(express.json());
 
-// CORS setup
-const FRONTEND_URL = process.env.FRONTEND_URL || "http://localhost:3000";
-app.use(cors({ origin: FRONTEND_URL, credentials: true }));
+// ✅ CORS setup
+const allowedOrigins = [
+  "http://localhost:3000",          
+  "https://tejacommerce.netlify.app", 
+];
 
-app.get("/test", (req, res) => res.json({ message: "✅ Test route working" }));
+app.use(
+  cors({
+    origin: function (origin, callback) {
+      // Allow requests with no origin (like mobile apps or curl)
+      if (!origin || allowedOrigins.includes(origin)) {
+        callback(null, true);
+      } else {
+        console.error("❌ CORS blocked:", origin);
+        callback(new Error("CORS blocked: " + origin));
+      }
+    },
+    credentials: true,
+  })
+);
 
 // ROUTES
 app.use("/api/products", productRoutes);
@@ -30,13 +44,10 @@ app.use("/api/payment", paymentRoutes);
 app.use("/api/orders", orderRoutes);
 
 // MongoDB
-mongoose.connect(process.env.MONGO_URI)
+mongoose
+  .connect(process.env.MONGO_URI)
   .then(() => console.log("✅ MongoDB Connected"))
   .catch((err) => console.error("❌ MongoDB Error:", err));
-
-  app.get("/api/cart/test", (req, res) => {
-  res.json({ message: "Cart route works!" });
-});
 
 app.use((req, res) => res.status(404).json({ message: "Route not found" }));
 

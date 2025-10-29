@@ -4,14 +4,12 @@ const auth = require("../middleware/authMiddleware");
 const Cart = require("../models/Cart");
 const Product = require("../models/Product");
 
-// Helper → calculate total
 const calculateTotal = (items) =>
   items.reduce((sum, item) => {
     const price = item.product?.price || 0;
     return sum + price * item.qty;
   }, 0);
 
-// Helper → always return populated cart + total
 const sendCartResponse = async (cart, res) => {
   if (!cart) return res.json({ items: [], totalPrice: 0 });
 
@@ -56,7 +54,6 @@ router.post("/add", auth, async (req, res) => {
     if (!cart) {
       cart = new Cart({ user: req.user._id, items: [{ product: productId, qty }] });
     } else {
-      // Check if product already exists
       const existingItem = cart.items.find(
         (item) => item.product.toString() === productId
       );
@@ -67,12 +64,14 @@ router.post("/add", auth, async (req, res) => {
       }
     }
 
-    await cart.save(); // ✅ this triggers pre-save merge
+    await cart.save();
     const populatedCart = await Cart.findById(cart._id).populate("items.product");
+
+    const totalPrice = calculateTotal(populatedCart.items);
 
     res.json({
       items: populatedCart.items,
-      totalPrice: populatedCart.totalPrice,
+      totalPrice,
     });
   } catch (error) {
     console.error(error);
@@ -93,15 +92,22 @@ router.put("/:productId", auth, async (req, res) => {
     let cart = await Cart.findOne({ user: req.user._id });
     if (!cart) return res.status(404).json({ message: "Cart not found" });
 
-    const itemIndex = cart.items.findIndex(
-      (x) => x.product.toString() === productId
-    );
+    // ✅ Find correct item even if populated
+    const itemIndex = cart.items.findIndex((x) => {
+      const storedId =
+        typeof x.product === "object"
+          ? x.product._id?.toString()
+          : x.product.toString();
+      return storedId === productId;
+    });
+
     if (itemIndex === -1) {
+      console.log("Product ID mismatch →", productId);
       return res.status(404).json({ message: "Product not in cart" });
     }
 
     if (qty <= 0) {
-      cart.items = cart.items.filter((x) => x.product.toString() !== productId);
+      cart.items.splice(itemIndex, 1);
     } else {
       cart.items[itemIndex].qty = qty;
     }
@@ -109,7 +115,7 @@ router.put("/:productId", auth, async (req, res) => {
     await cart.save();
     return sendCartResponse(cart, res);
   } catch (error) {
-    console.error(error);
+    console.error("Cart Update Error:", error);
     res.status(500).json({ message: "Server error" });
   }
 });
@@ -118,19 +124,26 @@ router.put("/:productId", auth, async (req, res) => {
 router.delete("/:productId", auth, async (req, res) => {
   try {
     const { productId } = req.params;
-
     const cart = await Cart.findOne({ user: req.user._id });
     if (!cart) return res.status(404).json({ message: "Cart not found" });
 
-    cart.items = cart.items.filter((x) => x.product.toString() !== productId);
+    // ✅ Safe filter check
+    cart.items = cart.items.filter((x) => {
+      const storedId =
+        typeof x.product === "object"
+          ? x.product._id?.toString()
+          : x.product.toString();
+      return storedId !== productId;
+    });
 
     await cart.save();
     return sendCartResponse(cart, res);
   } catch (error) {
-    console.error(error);
+    console.error("Cart Remove Error:", error);
     res.status(500).json({ message: "Server error" });
   }
 });
+
 
 // ================= Clear Cart =================
 router.delete("/", auth, async (req, res) => {

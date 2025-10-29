@@ -2,10 +2,9 @@ const express = require("express");
 const router = express.Router();
 const auth = require("../middleware/authMiddleware");
 const Order = require("../models/Order");
+const Product = require("../models/Product");
 
-// @desc   Create new order
-// @route  POST /api/orders
-// @access Private
+// ================== CREATE ORDER ==================
 router.post("/", auth, async (req, res) => {
   try {
     const { items, shippingAddress, paymentMethod } = req.body;
@@ -14,12 +13,25 @@ router.post("/", auth, async (req, res) => {
       return res.status(400).json({ message: "No order items" });
     }
 
-    const itemsPrice = items.reduce((acc, item) => {
-      const price = item.price || (item.product && item.product.price) || 0;
-      const qty = item.qty || 1;
-      return acc + price * qty;
-    }, 0);
+    // Recalculate prices based on latest Product prices
+    const detailedItems = await Promise.all(
+      items.map(async (i) => {
+        const product = await Product.findById(i.product);
+        if (!product) throw new Error(`Product not found: ${i.product}`);
+        return {
+          name: product.name,
+          image: product.image,
+          price: product.price,
+          qty: i.qty,
+          product: product._id,
+        };
+      })
+    );
 
+    const itemsPrice = detailedItems.reduce(
+      (acc, item) => acc + item.price * item.qty,
+      0
+    );
     const shippingPrice = itemsPrice > 100 ? 0 : 10;
     const taxPrice = Number((0.18 * itemsPrice).toFixed(2));
     const totalPrice = Number((itemsPrice + shippingPrice + taxPrice).toFixed(2));
@@ -29,7 +41,7 @@ router.post("/", auth, async (req, res) => {
 
     const order = new Order({
       user: req.user._id,
-      items,
+      items: detailedItems,
       shippingAddress,
       paymentMethod,
       itemsPrice,
@@ -44,19 +56,14 @@ router.post("/", auth, async (req, res) => {
     res.status(201).json(createdOrder);
   } catch (error) {
     console.error("Create Order Error:", error);
-    res.status(500).json({ message: "Server error" });
+    res.status(500).json({ message: error.message || "Server error" });
   }
 });
 
-// @desc   Get logged-in user's orders
-// @route  GET /api/orders/my
-// @access Private
-// @route  GET /api/orders/my
+// ================== GET MY ORDERS ==================
 router.get("/my", auth, async (req, res) => {
   try {
-    const orders = await Order.find({ user: req.user._id })
-      .sort({ createdAt: -1 })
-      .populate("items.product", "name image price"); 
+    const orders = await Order.find({ user: req.user._id }).sort({ createdAt: -1 });
     res.json(orders);
   } catch (error) {
     console.error("My Orders Error:", error);
@@ -64,17 +71,26 @@ router.get("/my", auth, async (req, res) => {
   }
 });
 
-// @desc   Get single order by ID
-// @route  GET /api/orders/:id
-// @access Private
+// ================== GET ORDER BY ID ==================
 router.get("/:id", auth, async (req, res) => {
   try {
     const order = await Order.findById(req.params.id).populate("user", "name email");
-
     if (!order) return res.status(404).json({ message: "Order not found" });
 
     if (order.user._id.toString() !== req.user._id.toString()) {
       return res.status(403).json({ message: "Not authorized" });
+    }
+
+    // ✅ Recalculate total to ensure accuracy
+    const freshTotal = order.items.reduce(
+      (acc, i) => acc + (i.price || 0) * i.qty,
+      0
+    );
+    const expectedTotal = Number((freshTotal + order.shippingPrice + order.taxPrice).toFixed(2));
+
+    if (expectedTotal !== order.totalPrice) {
+      order.totalPrice = expectedTotal;
+      await order.save();
     }
 
     res.json(order);
@@ -84,13 +100,10 @@ router.get("/:id", auth, async (req, res) => {
   }
 });
 
-// @desc   Update order to paid
-// @route  PUT /api/orders/:id/pay
-// @access Private
+// ================== MARK AS PAID ==================
 router.put("/:id/pay", auth, async (req, res) => {
   try {
     const order = await Order.findById(req.params.id);
-
     if (!order) return res.status(404).json({ message: "Order not found" });
 
     order.isPaid = true;
@@ -110,22 +123,44 @@ router.put("/:id/pay", auth, async (req, res) => {
   }
 });
 
-// @desc   Update order to delivered (Admin)
-// @route  PUT /api/orders/:id/deliver
-// @access Private/Admin
+// ================== MARK AS DELIVERED ==================
 router.put("/:id/deliver", auth, async (req, res) => {
   try {
     const order = await Order.findById(req.params.id);
-
     if (!order) return res.status(404).json({ message: "Order not found" });
 
     order.isDelivered = true;
     order.deliveredAt = Date.now();
-
     const updatedOrder = await order.save();
+
     res.json(updatedOrder);
   } catch (error) {
     console.error("Deliver Order Error:", error);
+    res.status(500).json({ message: "Server error" });
+  }
+});
+
+// ================== VERIFY PAYMENT STATUS ==================
+router.get("/:id/verify-payment", auth, async (req, res) => {
+  try {
+    const order = await Order.findById(req.params.id);
+    if (!order) return res.status(404).json({ message: "Order not found" });
+
+    // 🔹 Mock verification logic
+    // (Replace this with your real payment gateway status check if needed)
+    if (order.isPaid) {
+      return res.json({
+        status: "paid",
+        paymentMethod: order.paymentMethod,
+      });
+    } else {
+      return res.json({
+        status: "pending",
+        paymentMethod: order.paymentMethod,
+      });
+    }
+  } catch (error) {
+    console.error("Verify Payment Error:", error);
     res.status(500).json({ message: "Server error" });
   }
 });

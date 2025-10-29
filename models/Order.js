@@ -26,10 +26,10 @@ const orderSchema = new mongoose.Schema(
       required: true,
       default: "COD",
     },
-    itemsPrice: { type: Number, required: true, default: 0.0 },
-    shippingPrice: { type: Number, required: true, default: 0.0 },
-    taxPrice: { type: Number, required: true, default: 0.0 },
-    totalPrice: { type: Number, required: true, default: 0.0 },
+    itemsPrice: { type: Number, required: true, default: 0 },
+    shippingPrice: { type: Number, required: true, default: 0 },
+    taxPrice: { type: Number, required: true, default: 0 },
+    totalPrice: { type: Number, required: true, default: 0 },
     isPaid: { type: Boolean, default: false },
     paidAt: { type: Date },
     paymentResult: {
@@ -44,5 +44,9 @@ const orderSchema = new mongoose.Schema(
   { timestamps: true }
 );
 
-const Order = mongoose.model("Order", orderSchema);
-module.exports = Order;
+orderSchema.pre(/^find/, function (next) {
+  this.populate("items.product", "name image price");
+  next();
+});
+
+module.exports = mongoose.model("Order", orderSchema);

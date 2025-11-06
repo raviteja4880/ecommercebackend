@@ -34,7 +34,7 @@ const allowedOrigins = [
   "http://localhost:3000",
   "http://localhost:3001",
   "https://tejacommerce.netlify.app",
-  "https://tejacommerce-admin.netlify.app"
+  "https://admin-delivary.netlify.app"
 ];
 
 

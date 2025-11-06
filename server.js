@@ -6,6 +6,7 @@ const mongoose = require("mongoose");
 // Import Routes
 const authRoutes = require("./routes/auth");
 const orderRoutes = require("./routes/order");
+const productRoutes = require("./routes/product");
 const cartRoutes = require("./routes/cart");
 const paymentRoutes = require("./routes/payment");
 const adminRoutes = require("./admin-delivary/routes/adminRoutes");
@@ -57,6 +58,7 @@ app.get("/", (req, res) => {
 
 // Use routes
 app.use("/api/auth", authRoutes);
+app.use("/api/products", productRoutes);
 app.use("/api/orders", orderRoutes);
 app.use("/api/cart", cartRoutes);
 app.use("/api/payment", paymentRoutes);

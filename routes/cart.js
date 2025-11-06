@@ -1,6 +1,6 @@
 const express = require("express");
 const router = express.Router();
-const auth = require("../middleware/authMiddleware");
+const { auth } = require("../middleware/authMiddleware");
 const Cart = require("../models/Cart");
 const Product = require("../models/Product");
 
@@ -92,7 +92,6 @@ router.put("/:productId", auth, async (req, res) => {
     let cart = await Cart.findOne({ user: req.user._id });
     if (!cart) return res.status(404).json({ message: "Cart not found" });
 
-    // ✅ Find correct item even if populated
     const itemIndex = cart.items.findIndex((x) => {
       const storedId =
         typeof x.product === "object"
@@ -102,7 +101,6 @@ router.put("/:productId", auth, async (req, res) => {
     });
 
     if (itemIndex === -1) {
-      console.log("Product ID mismatch →", productId);
       return res.status(404).json({ message: "Product not in cart" });
     }
 
@@ -127,7 +125,6 @@ router.delete("/:productId", auth, async (req, res) => {
     const cart = await Cart.findOne({ user: req.user._id });
     if (!cart) return res.status(404).json({ message: "Cart not found" });
 
-    // ✅ Safe filter check
     cart.items = cart.items.filter((x) => {
       const storedId =
         typeof x.product === "object"
@@ -143,7 +140,6 @@ router.delete("/:productId", auth, async (req, res) => {
     res.status(500).json({ message: "Server error" });
   }
 });
-
 
 // ================= Clear Cart =================
 router.delete("/", auth, async (req, res) => {

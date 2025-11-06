@@ -1,3 +1,4 @@
+// models/Order.js
 const mongoose = require("mongoose");
 
 const orderItemSchema = new mongoose.Schema(
@@ -40,7 +41,18 @@ const orderSchema = new mongoose.Schema(
     },
     isDelivered: { type: Boolean, default: false },
     deliveredAt: { type: Date },
+    // NEW FIELDS FOR ADMIN
+    status: {
+      type: String,
+      enum: ["Pending", "Processing", "Shipped", "Delivered", "Cancelled"],
+      default: "Pending",
+    },
+    assignedTo: {
+    type: mongoose.Schema.Types.ObjectId,
+    ref: "User", 
+    default: null,
   },
+},
   { timestamps: true }
 );
 

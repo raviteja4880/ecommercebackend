@@ -23,7 +23,7 @@ router.post("/", auth, async (req, res) => {
       return res.status(400).json({ message: "Invalid mobile number format" });
     }
 
-    // Recalculate product prices (ensure integrity)
+    // ✅ Ensure product integrity (pull latest price)
     const detailedItems = await Promise.all(
       items.map(async (i) => {
         const product = await Product.findById(i.product);
@@ -46,10 +46,10 @@ router.post("/", auth, async (req, res) => {
     const taxPrice = Number((0.18 * itemsPrice).toFixed(2));
     const totalPrice = Number((itemsPrice + shippingPrice + taxPrice).toFixed(2));
 
+    // ✅ Mark COD orders as immediately paid
     const isPaid = paymentMethod === "COD";
     const paidAt = isPaid ? Date.now() : null;
 
-    // Create new order document
     const order = new Order({
       user: req.user._id,
       items: detailedItems,
@@ -62,6 +62,9 @@ router.post("/", auth, async (req, res) => {
       totalPrice,
       isPaid,
       paidAt,
+      paymentResult: isPaid
+        ? { status: "paid", method: "COD", update_time: new Date().toISOString() }
+        : {},
     });
 
     const createdOrder = await order.save();
@@ -95,11 +98,8 @@ router.get("/:id", auth, async (req, res) => {
       return res.status(403).json({ message: "Not authorized to view this order" });
     }
 
-    // Auto-fix total mismatch (safety)
-    const freshTotal = order.items.reduce(
-      (acc, i) => acc + (i.price || 0) * i.qty,
-      0
-    );
+    // Auto-fix total mismatch
+    const freshTotal = order.items.reduce((acc, i) => acc + (i.price || 0) * i.qty, 0);
     const expectedTotal = Number((freshTotal + order.shippingPrice + order.taxPrice).toFixed(2));
 
     if (expectedTotal !== order.totalPrice) {
@@ -115,22 +115,28 @@ router.get("/:id", auth, async (req, res) => {
 });
 
 // ================== MARK AS PAID ==================
+// ✅ Used for: COD & after QR/Card payment confirmation
 router.put("/:id/pay", auth, async (req, res) => {
   try {
     const order = await Order.findById(req.params.id);
     if (!order) return res.status(404).json({ message: "Order not found" });
 
+    if (order.isPaid) {
+      return res.status(400).json({ message: "Order already marked as paid" });
+    }
+
     order.isPaid = true;
     order.paidAt = Date.now();
     order.paymentResult = {
-      transactionId: req.body.transactionId,
-      status: req.body.status,
-      update_time: req.body.update_time,
-      email: req.body.email,
+      transactionId: req.body.transactionId || `TXN-${Date.now()}`,
+      status: req.body.status || "paid",
+      update_time: new Date().toISOString(),
+      method: req.body.method || order.paymentMethod,
+      email: req.user.email,
     };
 
     const updatedOrder = await order.save();
-    res.json(updatedOrder);
+    res.json({ message: "Order marked as paid", order: updatedOrder });
   } catch (error) {
     console.error("Pay Order Error:", error.message);
     res.status(500).json({ message: "Server error" });
@@ -145,9 +151,10 @@ router.put("/:id/deliver", auth, async (req, res) => {
 
     order.isDelivered = true;
     order.deliveredAt = Date.now();
-    const updatedOrder = await order.save();
+    order.status = "Delivered";
 
-    res.json(updatedOrder);
+    const updatedOrder = await order.save();
+    res.json({ message: "Order marked as delivered", order: updatedOrder });
   } catch (error) {
     console.error("Deliver Order Error:", error.message);
     res.status(500).json({ message: "Server error" });
@@ -160,11 +167,10 @@ router.get("/:id/verify-payment", auth, async (req, res) => {
     const order = await Order.findById(req.params.id);
     if (!order) return res.status(404).json({ message: "Order not found" });
 
-    if (order.isPaid) {
-      res.json({ status: "paid", paymentMethod: order.paymentMethod });
-    } else {
-      res.json({ status: "pending", paymentMethod: order.paymentMethod });
-    }
+    res.json({
+      status: order.isPaid ? "paid" : "pending",
+      paymentMethod: order.paymentMethod,
+    });
   } catch (error) {
     console.error("Verify Payment Error:", error.message);
     res.status(500).json({ message: "Server error" });

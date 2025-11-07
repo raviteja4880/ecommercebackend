@@ -42,7 +42,6 @@ router.post("/initiate", auth, async (req, res) => {
         return res.status(400).json({ message: "Invalid card details" });
       }
       paymentData.cardLast4 = cardDetails.number.slice(-4);
-      // Do NOT mark paid yet; will confirm manually
     }
 
     const payment = new Payment(paymentData);
@@ -71,7 +70,6 @@ router.post("/verify/:orderId", auth, async (req, res) => {
     const payment = await Payment.findOne({ order: orderId });
     if (!payment) return res.status(404).json({ message: "Payment not found" });
 
-    // Just return current status
     res.json({ success: true, status: payment.status });
   } catch (error) {
     console.error("Payment verify error:", error);
@@ -80,13 +78,11 @@ router.post("/verify/:orderId", auth, async (req, res) => {
 });
 
 // ================= Confirm Payment =================
-// Simulate external payment success (e.g., user scans QR and pays)
 // @route   POST /api/payment/confirm/:orderId
 // @access  Private
 router.post("/confirm/:orderId", auth, async (req, res) => {
   try {
     const { orderId } = req.params;
-
     const payment = await Payment.findOne({ order: orderId });
     if (!payment) return res.status(404).json({ message: "Payment not found" });
 
@@ -101,11 +97,23 @@ router.post("/confirm/:orderId", auth, async (req, res) => {
 
     // Update order
     const order = await Order.findById(orderId);
-    order.isPaid = true;
-    order.paidAt = Date.now();
-    await order.save();
+    if (order) {
+      order.isPaid = true;
+      order.paidAt = Date.now();
+      order.paymentMethod = payment.method;
+      order.paymentResult = {
+        transactionId: payment.transactionId,
+        status: "paid",
+        update_time: new Date().toISOString(),
+      };
+      await order.save();
+    }
 
-    res.json({ success: true, message: "Payment confirmed", status: payment.status });
+    res.json({
+      success: true,
+      message: "Payment confirmed successfully",
+      status: payment.status,
+    });
   } catch (error) {
     console.error("Payment confirm error:", error);
     res.status(500).json({ message: "Server error" });

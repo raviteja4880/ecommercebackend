@@ -23,7 +23,7 @@ router.post("/", auth, async (req, res) => {
       return res.status(400).json({ message: "Invalid mobile number format" });
     }
 
-    // ✅ Ensure product integrity (pull latest price)
+    // Ensure product integrity (fetch fresh price)
     const detailedItems = await Promise.all(
       items.map(async (i) => {
         const product = await Product.findById(i.product);
@@ -46,8 +46,8 @@ router.post("/", auth, async (req, res) => {
     const taxPrice = Number((0.18 * itemsPrice).toFixed(2));
     const totalPrice = Number((itemsPrice + shippingPrice + taxPrice).toFixed(2));
 
-    // ✅ Mark COD orders as immediately paid
-    const isPaid = paymentMethod === "COD";
+    // Only mark prepaid orders (QR, Card) as paid
+    const isPaid = paymentMethod !== "COD";
     const paidAt = isPaid ? Date.now() : null;
 
     const order = new Order({
@@ -63,7 +63,11 @@ router.post("/", auth, async (req, res) => {
       isPaid,
       paidAt,
       paymentResult: isPaid
-        ? { status: "paid", method: "COD", update_time: new Date().toISOString() }
+        ? {
+            status: "paid",
+            method: paymentMethod,
+            update_time: new Date().toISOString(),
+          }
         : {},
     });
 
@@ -91,16 +95,26 @@ router.get("/my", auth, async (req, res) => {
 // ================== GET ORDER BY ID ==================
 router.get("/:id", auth, async (req, res) => {
   try {
-    const order = await Order.findById(req.params.id).populate("user", "name email phone");
+    const order = await Order.findById(req.params.id).populate(
+      "user",
+      "name email phone"
+    );
     if (!order) return res.status(404).json({ message: "Order not found" });
 
     if (order.user._id.toString() !== req.user._id.toString()) {
-      return res.status(403).json({ message: "Not authorized to view this order" });
+      return res
+        .status(403)
+        .json({ message: "Not authorized to view this order" });
     }
 
     // Auto-fix total mismatch
-    const freshTotal = order.items.reduce((acc, i) => acc + (i.price || 0) * i.qty, 0);
-    const expectedTotal = Number((freshTotal + order.shippingPrice + order.taxPrice).toFixed(2));
+    const freshTotal = order.items.reduce(
+      (acc, i) => acc + (i.price || 0) * i.qty,
+      0
+    );
+    const expectedTotal = Number(
+      (freshTotal + order.shippingPrice + order.taxPrice).toFixed(2)
+    );
 
     if (expectedTotal !== order.totalPrice) {
       order.totalPrice = expectedTotal;
@@ -115,7 +129,6 @@ router.get("/:id", auth, async (req, res) => {
 });
 
 // ================== MARK AS PAID ==================
-// ✅ Used for: COD & after QR/Card payment confirmation
 router.put("/:id/pay", auth, async (req, res) => {
   try {
     const order = await Order.findById(req.params.id);

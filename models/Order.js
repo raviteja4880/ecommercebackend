@@ -21,6 +21,7 @@ const orderSchema = new mongoose.Schema(
     user: { type: mongoose.Schema.Types.ObjectId, ref: "User", required: true },
     items: [orderItemSchema],
     shippingAddress: { type: String, required: true },
+    mobile: { type: String, required: true },
     paymentMethod: {
       type: String,
       enum: ["COD", "qr", "card"],
@@ -41,7 +42,6 @@ const orderSchema = new mongoose.Schema(
     },
     isDelivered: { type: Boolean, default: false },
     deliveredAt: { type: Date },
-    // NEW FIELDS FOR ADMIN
     status: {
       type: String,
       enum: ["Pending", "Processing", "Shipped", "Delivered", "Cancelled"],

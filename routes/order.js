@@ -7,13 +7,23 @@ const Product = require("../models/Product");
 // ================== CREATE ORDER ==================
 router.post("/", auth, async (req, res) => {
   try {
-    const { items, shippingAddress, paymentMethod } = req.body;
+    const { items, shippingAddress, paymentMethod, mobile } = req.body;
 
+    // Validation
     if (!items || items.length === 0) {
       return res.status(400).json({ message: "No order items" });
     }
+    if (!shippingAddress?.trim()) {
+      return res.status(400).json({ message: "Shipping address is required" });
+    }
+    if (!mobile?.trim()) {
+      return res.status(400).json({ message: "Mobile number is required" });
+    }
+    if (!/^[6-9]\d{9}$/.test(mobile)) {
+      return res.status(400).json({ message: "Invalid mobile number format" });
+    }
 
-    // Recalculate prices based on latest Product prices
+    // Recalculate product prices (ensure integrity)
     const detailedItems = await Promise.all(
       items.map(async (i) => {
         const product = await Product.findById(i.product);
@@ -39,10 +49,12 @@ router.post("/", auth, async (req, res) => {
     const isPaid = paymentMethod === "COD";
     const paidAt = isPaid ? Date.now() : null;
 
+    // Create new order document
     const order = new Order({
       user: req.user._id,
       items: detailedItems,
       shippingAddress,
+      mobile,
       paymentMethod,
       itemsPrice,
       shippingPrice,
@@ -55,7 +67,7 @@ router.post("/", auth, async (req, res) => {
     const createdOrder = await order.save();
     res.status(201).json(createdOrder);
   } catch (error) {
-    console.error("Create Order Error:", error);
+    console.error("Create Order Error:", error.message);
     res.status(500).json({ message: error.message || "Server error" });
   }
 });
@@ -63,10 +75,12 @@ router.post("/", auth, async (req, res) => {
 // ================== GET MY ORDERS ==================
 router.get("/my", auth, async (req, res) => {
   try {
-    const orders = await Order.find({ user: req.user._id }).sort({ createdAt: -1 });
+    const orders = await Order.find({ user: req.user._id })
+      .sort({ createdAt: -1 })
+      .populate("items.product", "name image price");
     res.json(orders);
   } catch (error) {
-    console.error("My Orders Error:", error);
+    console.error("My Orders Error:", error.message);
     res.status(500).json({ message: "Server error" });
   }
 });
@@ -74,14 +88,14 @@ router.get("/my", auth, async (req, res) => {
 // ================== GET ORDER BY ID ==================
 router.get("/:id", auth, async (req, res) => {
   try {
-    const order = await Order.findById(req.params.id).populate("user", "name email");
+    const order = await Order.findById(req.params.id).populate("user", "name email phone");
     if (!order) return res.status(404).json({ message: "Order not found" });
 
     if (order.user._id.toString() !== req.user._id.toString()) {
-      return res.status(403).json({ message: "Not authorized" });
+      return res.status(403).json({ message: "Not authorized to view this order" });
     }
 
-    // ✅ Recalculate total to ensure accuracy
+    // Auto-fix total mismatch (safety)
     const freshTotal = order.items.reduce(
       (acc, i) => acc + (i.price || 0) * i.qty,
       0
@@ -95,7 +109,7 @@ router.get("/:id", auth, async (req, res) => {
 
     res.json(order);
   } catch (error) {
-    console.error("Get Order Error:", error);
+    console.error("Get Order Error:", error.message);
     res.status(500).json({ message: "Server error" });
   }
 });
@@ -118,7 +132,7 @@ router.put("/:id/pay", auth, async (req, res) => {
     const updatedOrder = await order.save();
     res.json(updatedOrder);
   } catch (error) {
-    console.error("Pay Order Error:", error);
+    console.error("Pay Order Error:", error.message);
     res.status(500).json({ message: "Server error" });
   }
 });
@@ -135,7 +149,7 @@ router.put("/:id/deliver", auth, async (req, res) => {
 
     res.json(updatedOrder);
   } catch (error) {
-    console.error("Deliver Order Error:", error);
+    console.error("Deliver Order Error:", error.message);
     res.status(500).json({ message: "Server error" });
   }
 });
@@ -146,21 +160,13 @@ router.get("/:id/verify-payment", auth, async (req, res) => {
     const order = await Order.findById(req.params.id);
     if (!order) return res.status(404).json({ message: "Order not found" });
 
-    // 🔹 Mock verification logic
-    // (Replace this with your real payment gateway status check if needed)
     if (order.isPaid) {
-      return res.json({
-        status: "paid",
-        paymentMethod: order.paymentMethod,
-      });
+      res.json({ status: "paid", paymentMethod: order.paymentMethod });
     } else {
-      return res.json({
-        status: "pending",
-        paymentMethod: order.paymentMethod,
-      });
+      res.json({ status: "pending", paymentMethod: order.paymentMethod });
     }
   } catch (error) {
-    console.error("Verify Payment Error:", error);
+    console.error("Verify Payment Error:", error.message);
     res.status(500).json({ message: "Server error" });
   }
 });

@@ -84,7 +84,8 @@ router.post("/verify/:orderId", auth, async (req, res) => {
     if (!payment)
       return res.status(404).json({ message: "Payment not found" });
 
-    res.json({ success: true, status: payment.status });
+    // Optionally, you can simulate a delay or check with a real gateway here
+    return res.json({ success: true, status: payment.status });
   } catch (error) {
     console.error("Payment verify error:", error);
     res.status(500).json({ message: "Server error" });

@@ -19,16 +19,19 @@ router.post("/initiate", auth, async (req, res) => {
       return res.status(400).json({ message: "Amount mismatch with order total" });
     }
 
-    // Base payment data
+    // Mark any old payments for this order as inactive
+    await Payment.updateMany({ order: orderId }, { $set: { active: false } });
+
     let paymentData = {
       order: order._id,
       user: order.user._id,
       amount,
       method,
       status: "pending",
+      active: true, 
     };
 
-    // 🔹 QR PAYMENT
+    // QR PAYMENT
     if (method === "qr") {
       const upiId = "8885674269@ybl";
       const payeeName = "Ravi Teja";
@@ -38,23 +41,16 @@ router.post("/initiate", auth, async (req, res) => {
       paymentData.qrCodeUrl = await QRCode.toDataURL(qrString);
     }
 
-    // 🔹 CARD PAYMENT
+    // CARD PAYMENT
     if (method === "card") {
-      if (
-        !cardDetails?.number ||
-        !cardDetails?.expiry ||
-        !cardDetails?.cvv
-      ) {
-        return res
-          .status(400)
-          .json({ message: "Invalid or incomplete card details" });
+      if (!cardDetails?.number || !cardDetails?.expiry || !cardDetails?.cvv) {
+        return res.status(400).json({ message: "Invalid or incomplete card details" });
       }
       paymentData.cardLast4 = cardDetails.number.slice(-4);
-      // Not marking paid yet — must confirm manually in /confirm
     }
 
-    // COD PAYMENT — no external transaction
-    if (method === "COD") {
+    // COD PAYMENT
+    if (method === "cod") {
       paymentData.status = "cod_pending";
     }
 
@@ -74,17 +70,17 @@ router.post("/initiate", auth, async (req, res) => {
   }
 });
 
+
 // ================= VERIFY PAYMENT =================
 // @route   POST /api/payment/verify/:orderId
 // @access  Private
 router.post("/verify/:orderId", auth, async (req, res) => {
   try {
     const { orderId } = req.params;
-    const payment = await Payment.findOne({ order: orderId });
+    const payment = await Payment.findOne({ order: orderId, active: true });
     if (!payment)
-      return res.status(404).json({ message: "Payment not found" });
+      return res.status(404).json({ message: "No active payment found" });
 
-    // Optionally, you can simulate a delay or check with a real gateway here
     return res.json({ success: true, status: payment.status });
   } catch (error) {
     console.error("Payment verify error:", error);
@@ -92,15 +88,16 @@ router.post("/verify/:orderId", auth, async (req, res) => {
   }
 });
 
+
 // ================= CONFIRM PAYMENT =================
 // @route   POST /api/payment/confirm/:orderId
 // @access  Private
 router.post("/confirm/:orderId", auth, async (req, res) => {
   try {
     const { orderId } = req.params;
-    const payment = await Payment.findOne({ order: orderId });
+    const payment = await Payment.findOne({ order: orderId, active: true });
     if (!payment)
-      return res.status(404).json({ message: "Payment not found" });
+      return res.status(404).json({ message: "No active payment found" });
 
     if (payment.status === "paid") {
       return res
@@ -135,8 +132,7 @@ router.post("/confirm/:orderId", auth, async (req, res) => {
       });
     }
 
-    // COD confirmation (not allowed automatically)
-    if (payment.method === "COD") {
+    if (payment.method === "cod") {
       return res.status(400).json({
         message: "COD payments are confirmed only after delivery",
       });

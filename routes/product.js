@@ -43,7 +43,7 @@ router.get("/:id", async (req, res) => {
 router.post("/sync", async (req, res) => {
   try {
     await syncProducts();
-    res.json({ message: "✅ Products synced successfully" });
+    res.json({ message: " Products synced successfully" });
   } catch (error) {
     res.status(500).json({ message: error.message });
   }

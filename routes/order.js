@@ -23,7 +23,7 @@ router.post("/", auth, async (req, res) => {
       return res.status(400).json({ message: "Invalid mobile number format" });
     }
 
-    // Ensure product integrity (fetch fresh price)
+    // Fetch fresh product data to ensure correct pricing
     const detailedItems = await Promise.all(
       items.map(async (i) => {
         const product = await Product.findById(i.product);
@@ -38,18 +38,18 @@ router.post("/", auth, async (req, res) => {
       })
     );
 
+    // Calculate total and shipping
     const itemsPrice = detailedItems.reduce(
       (acc, item) => acc + item.price * item.qty,
       0
     );
-    const shippingPrice = itemsPrice > 100 ? 0 : 10;
-    const taxPrice = Number((0.18 * itemsPrice).toFixed(2));
-    const totalPrice = Number((itemsPrice + shippingPrice + taxPrice).toFixed(2));
 
-    // Only mark prepaid orders (QR, Card) as paid
-    const isPaid = paymentMethod !== "COD";
-    const paidAt = isPaid ? Date.now() : null;
+    // delivery charge: ₹29 if below ₹500, else free
+    const shippingPrice = itemsPrice < 500 ? 29 : 0;
 
+    const totalPrice = itemsPrice + shippingPrice;
+
+    // Always create order as unpaid initially
     const order = new Order({
       user: req.user._id,
       items: detailedItems,
@@ -58,17 +58,10 @@ router.post("/", auth, async (req, res) => {
       paymentMethod,
       itemsPrice,
       shippingPrice,
-      taxPrice,
       totalPrice,
-      isPaid,
-      paidAt,
-      paymentResult: isPaid
-        ? {
-            status: "paid",
-            method: paymentMethod,
-            update_time: new Date().toISOString(),
-          }
-        : {},
+      isPaid: false,
+      paidAt: null,
+      paymentResult: {},
     });
 
     const createdOrder = await order.save();
@@ -76,6 +69,34 @@ router.post("/", auth, async (req, res) => {
   } catch (error) {
     console.error("Create Order Error:", error.message);
     res.status(500).json({ message: error.message || "Server error" });
+  }
+});
+
+// ================== MARK AS PAID ==================
+router.put("/:id/pay", auth, async (req, res) => {
+  try {
+    const order = await Order.findById(req.params.id);
+    if (!order) return res.status(404).json({ message: "Order not found" });
+
+    if (order.isPaid) {
+      return res.status(400).json({ message: "Order already marked as paid" });
+    }
+
+    order.isPaid = true;
+    order.paidAt = Date.now();
+    order.paymentResult = {
+      transactionId: req.body.transactionId || `TXN-${Date.now()}`,
+      status: req.body.status || "paid",
+      update_time: new Date().toISOString(),
+      method: req.body.method || order.paymentMethod,
+      email: req.user.email,
+    };
+
+    const updatedOrder = await order.save();
+    res.json({ message: "Order marked as paid", order: updatedOrder });
+  } catch (error) {
+    console.error("Pay Order Error:", error.message);
+    res.status(500).json({ message: "Server error" });
   }
 });
 
@@ -112,9 +133,7 @@ router.get("/:id", auth, async (req, res) => {
       (acc, i) => acc + (i.price || 0) * i.qty,
       0
     );
-    const expectedTotal = Number(
-      (freshTotal + order.shippingPrice + order.taxPrice).toFixed(2)
-    );
+    const expectedTotal = freshTotal + (freshTotal < 500 ? 29 : 0);
 
     if (expectedTotal !== order.totalPrice) {
       order.totalPrice = expectedTotal;
@@ -124,34 +143,6 @@ router.get("/:id", auth, async (req, res) => {
     res.json(order);
   } catch (error) {
     console.error("Get Order Error:", error.message);
-    res.status(500).json({ message: "Server error" });
-  }
-});
-
-// ================== MARK AS PAID ==================
-router.put("/:id/pay", auth, async (req, res) => {
-  try {
-    const order = await Order.findById(req.params.id);
-    if (!order) return res.status(404).json({ message: "Order not found" });
-
-    if (order.isPaid) {
-      return res.status(400).json({ message: "Order already marked as paid" });
-    }
-
-    order.isPaid = true;
-    order.paidAt = Date.now();
-    order.paymentResult = {
-      transactionId: req.body.transactionId || `TXN-${Date.now()}`,
-      status: req.body.status || "paid",
-      update_time: new Date().toISOString(),
-      method: req.body.method || order.paymentMethod,
-      email: req.user.email,
-    };
-
-    const updatedOrder = await order.save();
-    res.json({ message: "Order marked as paid", order: updatedOrder });
-  } catch (error) {
-    console.error("Pay Order Error:", error.message);
     res.status(500).json({ message: "Server error" });
   }
 });
@@ -170,22 +161,6 @@ router.put("/:id/deliver", auth, async (req, res) => {
     res.json({ message: "Order marked as delivered", order: updatedOrder });
   } catch (error) {
     console.error("Deliver Order Error:", error.message);
-    res.status(500).json({ message: "Server error" });
-  }
-});
-
-// ================== VERIFY PAYMENT STATUS ==================
-router.get("/:id/verify-payment", auth, async (req, res) => {
-  try {
-    const order = await Order.findById(req.params.id);
-    if (!order) return res.status(404).json({ message: "Order not found" });
-
-    res.json({
-      status: order.isPaid ? "paid" : "pending",
-      paymentMethod: order.paymentMethod,
-    });
-  } catch (error) {
-    console.error("Verify Payment Error:", error.message);
     res.status(500).json({ message: "Server error" });
   }
 });

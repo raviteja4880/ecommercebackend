@@ -164,13 +164,13 @@ router.put("/:id/deliver", auth, async (req, res) => {
 
     const updatedOrder = await order.save();
 
-    // Send confirmation email
+    // Send delivery confirmation email via Brevo
     if (order.user?.email) {
       await sendDeliveryEmail(order.user.email, updatedOrder);
     }
 
     res.json({
-      message: "Order marked as delivered and confirmation email sent",
+      message: "Order marked as delivered and email sent successfully",
       order: updatedOrder,
     });
   } catch (error) {
@@ -178,6 +178,5 @@ router.put("/:id/deliver", auth, async (req, res) => {
     res.status(500).json({ message: "Server error" });
   }
 });
-
 
 module.exports = router;

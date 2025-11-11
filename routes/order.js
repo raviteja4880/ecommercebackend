@@ -3,6 +3,7 @@ const router = express.Router();
 const { auth } = require("../middleware/authMiddleware");
 const Order = require("../models/Order");
 const Product = require("../models/Product");
+const { sendDeliveryEmail } = require("../utils/sendEmail");
 
 // ================== CREATE ORDER ==================
 router.post("/", auth, async (req, res) => {
@@ -150,19 +151,33 @@ router.get("/:id", auth, async (req, res) => {
 // ================== MARK AS DELIVERED ==================
 router.put("/:id/deliver", auth, async (req, res) => {
   try {
-    const order = await Order.findById(req.params.id);
+    const order = await Order.findById(req.params.id).populate("user", "name email");
     if (!order) return res.status(404).json({ message: "Order not found" });
+
+    if (order.isDelivered) {
+      return res.status(400).json({ message: "Order already delivered" });
+    }
 
     order.isDelivered = true;
     order.deliveredAt = Date.now();
     order.status = "Delivered";
 
     const updatedOrder = await order.save();
-    res.json({ message: "Order marked as delivered", order: updatedOrder });
+
+    // Send confirmation email
+    if (order.user?.email) {
+      await sendDeliveryEmail(order.user.email, updatedOrder);
+    }
+
+    res.json({
+      message: "Order marked as delivered and confirmation email sent",
+      order: updatedOrder,
+    });
   } catch (error) {
     console.error("Deliver Order Error:", error.message);
     res.status(500).json({ message: "Server error" });
   }
 });
+
 
 module.exports = router;

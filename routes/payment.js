@@ -108,7 +108,6 @@ router.post("/confirm/:orderId", auth, async (req, res) => {
       payment.transactionId = "TXN-" + Date.now();
       await payment.save();
 
-      // Reuse your order /pay logic
       const order = await Order.findById(orderId);
       if (order && !order.isPaid) {
         order.isPaid = true;
@@ -124,7 +123,6 @@ router.post("/confirm/:orderId", auth, async (req, res) => {
 
       return res.json({
         success: true,
-        message: "Payment confirmed successfully",
         paymentStatus: payment.status,
       });
     }

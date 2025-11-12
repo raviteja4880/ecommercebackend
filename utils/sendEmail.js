@@ -2,7 +2,12 @@ const Sib = require("sib-api-v3-sdk");
 
 const sendDeliveryEmail = async (to, order) => {
   try {
-    if (!to) return;
+    if (!to) {
+      console.warn("⚠️ No recipient email provided, skipping send.");
+      return;
+    }
+
+    console.log("📧 Preparing to send Brevo email to:", to);
 
     const client = Sib.ApiClient.instance;
     const apiKey = client.authentications["api-key"];
@@ -15,6 +20,7 @@ const sendDeliveryEmail = async (to, order) => {
       name: "MyStore",
     };
 
+    // ✅ Convert ObjectId to string safely
     const orderId =
       typeof order._id === "string" ? order._id : order._id.toString();
 
@@ -23,11 +29,15 @@ const sendDeliveryEmail = async (to, order) => {
     const htmlContent = `
       <div style="background-color:#f6f9fc;padding:40px 0;font-family:'Segoe UI',Roboto,Arial,sans-serif;">
         <div style="max-width:600px;margin:auto;background:#ffffff;border-radius:12px;box-shadow:0 2px 8px rgba(0,0,0,0.08);padding:30px;">
+          
+          <!-- Header -->
           <div style="text-align:center;border-bottom:1px solid #eaeaea;padding-bottom:20px;">
             <img src="https://cdn-icons-png.flaticon.com/512/1170/1170678.png" alt="MyStore" width="60" style="margin-bottom:10px;" />
             <h1 style="color:#0d6efd;margin:0;">MyStore</h1>
+            <p style="margin:4px 0 0;color:#777;font-size:14px;">Your trusted online shopping destination</p>
           </div>
 
+          <!-- Delivery confirmation -->
           <div style="padding:25px 0;text-align:center;">
             <img src="https://cdn-icons-png.flaticon.com/512/190/190411.png" width="70" alt="Delivered" />
             <h2 style="color:#28a745;margin-top:15px;">Your Order Has Been Delivered!</h2>
@@ -37,8 +47,11 @@ const sendDeliveryEmail = async (to, order) => {
             </p>
           </div>
 
+          <!-- Order summary -->
           <div style="margin:25px 0;padding:20px;background:#f9fafb;border-radius:10px;">
-            <h3 style="margin-top:0;color:#333;">Order Summary</h3>
+            <h3 style="margin-top:0;color:#333;display:flex;align-items:center;gap:8px;">
+              <img src="https://cdn-icons-png.flaticon.com/512/679/679922.png" width="22" alt="package"/> Order Summary
+            </h3>
             <table width="100%" style="border-collapse:collapse;">
               <tbody>
                 ${order.items
@@ -69,11 +82,12 @@ const sendDeliveryEmail = async (to, order) => {
             </table>
           </div>
 
+          <!-- View order button -->
           <div style="text-align:center;margin-top:30px;">
             <a href="${
               process.env.CLIENT_URL
                 ? `${process.env.CLIENT_URL}/orders/${orderId}`
-                : "https://tejacommerce.netlify.app/my-orders"
+                : "https://tejacommerce.netlify.app/"
             }"
               style="display:inline-block;padding:12px 28px;background-color:#0d6efd;color:#fff;
               text-decoration:none;border-radius:6px;font-weight:600;letter-spacing:0.3px;">
@@ -81,6 +95,7 @@ const sendDeliveryEmail = async (to, order) => {
             </a>
           </div>
 
+          <!-- Footer -->
           <div style="margin-top:30px;font-size:14px;color:#555;line-height:1.6;">
             <p>We hope you enjoy your purchase. Thank you for shopping with <b>MyStore</b>!</p>
             <p style="margin-top:10px;">Need help? <a href="mailto:${
@@ -99,15 +114,19 @@ const sendDeliveryEmail = async (to, order) => {
       </div>
     `;
 
-    await transEmailApi.sendTransacEmail({
+    const emailData = {
       sender,
       to: [{ email: to }],
       subject,
       htmlContent,
-    });
+    };
+
+    console.log(" [DEBUG] Email payload ready to send.");
+    const response = await transEmailApi.sendTransacEmail(emailData);
+
+    console.log("Brevo API Response:", response);
   } catch (err) {
-    // Keep minimal logging in case of API or SMTP issues
-    console.error("❌ Email send failed:", err.response?.text || err.message);
+    console.error("❌ Error sending Brevo email:", err.response?.text || err.message);
   }
 };
 

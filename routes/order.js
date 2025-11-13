@@ -114,14 +114,17 @@ router.put("/:id/pay", auth, async (req, res) => {
 router.get("/my", auth, async (req, res) => {
   try {
     const orders = await Order.find({ user: req.user._id })
+      .select(
+        "items totalPrice isPaid isDelivered deliveredAt paymentMethod expectedDeliveryDate deliveryStage delayMessage createdAt"
+      )
       .sort({ createdAt: -1 });
+
     res.json(orders);
   } catch (error) {
     console.error("My Orders Error:", error);
     res.status(500).json({ message: "Server error" });
   }
 });
-
 
 // ================== GET ORDER BY ID (AUTO-DELAY CHECK) ==================
 router.get("/:id", auth, async (req, res) => {

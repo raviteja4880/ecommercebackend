@@ -1,7 +1,5 @@
 const Sib = require("sib-api-v3-sdk");
 
-const Sib = require("sib-api-v3-sdk");
-
 const sendDeliveryEmail = async (to, order) => {
   try {
     if (!to) return;
@@ -111,7 +109,6 @@ const sendOrderConfirmationEmail = async (to, order) => {
   try {
     if (!to) return;
 
-    const Sib = require("sib-api-v3-sdk");
     const client = Sib.ApiClient.instance;
     client.authentications["api-key"].apiKey = process.env.BREVO_API_KEY;
     const transEmailApi = new Sib.TransactionalEmailsApi();

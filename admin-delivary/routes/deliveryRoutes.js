@@ -43,6 +43,11 @@ router.put("/:id/deliver", auth, deliveryOnly, async (req, res) => {
     order.deliveredAt = Date.now();
     order.status = "Delivered";
 
+    res.json({
+    message: "Order delivered",
+    deliveredAt: order.deliveredAt
+  });
+
     // If COD, mark as paid on delivery
     if (order.paymentMethod === "COD" && !order.isPaid) {
       order.isPaid = true;

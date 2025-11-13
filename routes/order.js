@@ -126,7 +126,7 @@ router.get("/my", auth, async (req, res) => {
 // ================== GET ORDER BY ID (AUTO-DELAY CHECK) ==================
 router.get("/:id", auth, async (req, res) => {
   try {
-    const order = await Order.findById(req.params.id).populate(
+    let order = await Order.findById(req.params.id).populate(
       "user",
       "name email phone"
     );
@@ -137,6 +137,8 @@ router.get("/:id", auth, async (req, res) => {
     if (order.user._id.toString() !== req.user._id.toString())
       return res.status(403).json({ message: "Not authorized" });
 
+    let updated = false;
+
     // =========== AUTO DELAY CHECK ===========
     const now = new Date();
 
@@ -144,13 +146,14 @@ router.get("/:id", auth, async (req, res) => {
       order.delayMessage = true;
 
       if (order.deliveryStage < 4) {
-        order.deliveryStage = 3; 
+        order.deliveryStage = 3;
       }
 
+      updated = true;
       await order.save();
     }
 
-    // Auto fix total mismatch
+    // Auto fix totals
     const freshTotal = order.items.reduce(
       (acc, i) => acc + (i.price || 0) * i.qty,
       0
@@ -159,16 +162,25 @@ router.get("/:id", auth, async (req, res) => {
 
     if (expectedTotal !== order.totalPrice) {
       order.totalPrice = expectedTotal;
+      updated = true;
       await order.save();
     }
 
+    // RELOAD the updated object so FE gets newest deliveryStage
+    if (updated) {
+      order = await Order.findById(req.params.id).populate(
+        "user",
+        "name email phone"
+      );
+    }
+
     res.json(order);
+
   } catch (error) {
     console.error("Get Order Error:", error);
     res.status(500).json({ message: "Server error" });
   }
 });
-
 
 // ================== MARK AS DELIVERED ==================
 router.put("/:id/deliver", auth, async (req, res) => {

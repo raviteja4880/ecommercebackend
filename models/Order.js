@@ -1,4 +1,3 @@
-// models/Order.js
 const mongoose = require("mongoose");
 
 const orderItemSchema = new mongoose.Schema(
@@ -22,6 +21,8 @@ const orderSchema = new mongoose.Schema(
     items: [orderItemSchema],
     shippingAddress: { type: String, required: true },
     mobile: { type: String, required: true },
+
+    // PAYMENT
     paymentMethod: {
       type: String,
       enum: ["COD", "qr", "card"],
@@ -32,6 +33,7 @@ const orderSchema = new mongoose.Schema(
     shippingPrice: { type: Number, required: true, default: 0 },
     taxPrice: { type: Number, required: true, default: 0 },
     totalPrice: { type: Number, required: true, default: 0 },
+
     isPaid: { type: Boolean, default: false },
     paidAt: { type: Date },
     paymentResult: {
@@ -40,6 +42,8 @@ const orderSchema = new mongoose.Schema(
       update_time: { type: String },
       email: { type: String },
     },
+
+    // DELIVERY
     isDelivered: { type: Boolean, default: false },
     deliveredAt: { type: Date },
     status: {
@@ -47,15 +51,22 @@ const orderSchema = new mongoose.Schema(
       enum: ["Pending", "Processing", "Shipped", "Delivered", "Cancelled"],
       default: "Pending",
     },
+
+    // NEW FIELDS FOR LIVE TRACKING
+    expectedDeliveryDate: { type: Date },
+    deliveryStage: { type: Number, default: 1 }, 
+    delayMessage: { type: Boolean, default: false },
+
     assignedTo: {
-    type: mongoose.Schema.Types.ObjectId,
-    ref: "User", 
-    default: null,
+      type: mongoose.Schema.Types.ObjectId,
+      ref: "User",
+      default: null,
+    },
   },
-},
   { timestamps: true }
 );
 
+// Auto populate product info
 orderSchema.pre(/^find/, function (next) {
   this.populate("items.product", "name image price");
   next();

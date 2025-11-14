@@ -3,6 +3,7 @@ const router = express.Router();
 const User = require("../models/User");
 const jwt = require("jsonwebtoken");
 const { auth } = require("../middleware/authMiddleware");
+const { sendWelcomeEmail } = require("../utils/sendEmail");
 
 // ================= REGISTER =================
 router.post("/register", async (req, res) => {
@@ -32,10 +33,20 @@ router.post("/register", async (req, res) => {
       role: role || "user",
     });
 
+    // Generate token
     const token = jwt.sign({ id: user._id }, process.env.JWT_SECRET, {
       expiresIn: "24d",
     });
 
+    // SEND WELCOME EMAIL
+    try {
+      await sendWelcomeEmail(user.email, user);
+    } catch (emailErr) {
+      console.error("Welcome Email Send Error:", emailErr.message);
+      // Do not stop registration if email fails
+    }
+
+    // Response
     res.status(201).json({
       _id: user._id,
       name: user.name,
@@ -95,7 +106,6 @@ router.put("/profile", auth, async (req, res) => {
 
     if (!user) return res.status(404).json({ message: "User not found" });
 
-    // Allow only these fields to be updated
     const { name, phone, password } = req.body;
 
     if (name) user.name = name;
@@ -123,7 +133,6 @@ router.put("/profile", auth, async (req, res) => {
 // ================= ADMIN: UPDATE ANY USER =================
 router.put("/:id", auth, async (req, res) => {
   try {
-    // Allow only admin to update others
     if (req.user.role !== "admin") {
       return res.status(403).json({ message: "Access denied: Admins only" });
     }

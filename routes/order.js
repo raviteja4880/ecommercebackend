@@ -5,21 +5,29 @@ const Order = require("../models/Order");
 const Product = require("../models/Product");
 const { sendDeliveryEmail, sendOrderConfirmationEmail } = require("../utils/sendEmail");
 
-// Helper: compute desired automatic stage based on days since createdAt
-// Mapping:
-//  day 1 -> stage 1 (Placed)
-//  day 2 -> stage 2 (Packed)
-//  day >=3 -> stage 3 (Shipped / Out for Delivery)  <-- will stay here until delivered
-//  if order.isDelivered -> stage 4 (Delivered)
 async function computeAndSyncStages(order) {
   if (!order) return order;
+
+  // If canceled -> freeze progress, ensure fields reflect cancelled state
+  if (order.isCanceled) {
+    // optional: set a dedicated numeric stage for cancelled (0) so FE can detect and stop progress
+    order.deliveryStage = order.deliveryStage || 0;
+    order.delayMessage = false;
+    try {
+      // Only save if some fields needed update
+      await order.save();
+    } catch (err) {
+      console.error("Error saving cancelled order in computeAndSyncStages:", err);
+    }
+    return order;
+  }
 
   const now = new Date();
   const created = new Date(order.createdAt || order._id.getTimestamp?.() || now);
   const msPerDay = 1000 * 60 * 60 * 24;
 
-  // Days passed since creation (floor difference)
-  const daysPassed = Math.floor((now - created) / msPerDay) + 1; // day 1 = same day
+  // Days passed since creation (floor difference). day 1 = created day
+  const daysPassed = Math.floor((now - created) / msPerDay) + 1;
 
   // Compute desired stage (cap at 3 unless delivered)
   let desiredStage = 1;
@@ -58,8 +66,6 @@ async function computeAndSyncStages(order) {
   if (updated) {
     try {
       await order.save();
-      // re-populate items.product if schema pre('find') autopopulates only on queries (since we're saving a document, products may already be populated)
-      await order.populate("items.product", "name image price").execPopulate?.();
     } catch (err) {
       console.error("Error saving order during computeAndSyncStages:", err);
     }
@@ -129,6 +135,9 @@ router.post("/", auth, async (req, res) => {
       deliveryStage: 1,
       expectedDeliveryDate: expectedDelivery,
       delayMessage: false,
+      isCanceled: false,
+      cancelReason: "",
+      canceledAt: null,
     });
 
     const createdOrder = await order.save();
@@ -143,6 +152,46 @@ router.post("/", auth, async (req, res) => {
   }
 });
 
+// ================== CANCEL ORDER ==================
+router.put("/:id/cancel", auth, async (req, res) => {
+  try {
+    const { reason } = req.body;
+
+    let order = await Order.findById(req.params.id).populate("user", "email name");
+
+    if (!order)
+      return res.status(404).json({ message: "Order not found" });
+
+    if (order.user._id.toString() !== req.user._id.toString())
+      return res.status(403).json({ message: "Not authorized" });
+
+    if (order.isDelivered)
+      return res.status(400).json({ message: "Delivered orders cannot be cancelled" });
+
+    if (order.isCanceled)
+      return res.status(400).json({ message: "Order already cancelled" });
+
+    // Mark cancel state
+    order.isCanceled = true;
+    order.cancelReason = reason || "User requested cancellation";
+    order.canceledAt = Date.now();
+    order.status = "Cancelled";
+
+    // optionally set deliveryStage to 0 (so FE shows no progress)
+    order.deliveryStage = 0;
+    order.delayMessage = false;
+
+    const updatedOrder = await order.save();
+
+    res.json({
+      message: "Order cancelled successfully",
+      order: updatedOrder,
+    });
+  } catch (error) {
+    console.error("Cancel Order Error:", error);
+    res.status(500).json({ message: "Server error" });
+  }
+});
 
 // ================== MARK AS PAID ==================
 router.put("/:id/pay", auth, async (req, res) => {
@@ -172,22 +221,20 @@ router.put("/:id/pay", auth, async (req, res) => {
   }
 });
 
-
 // ================== GET MY ORDERS ==================
 router.get("/my", auth, async (req, res) => {
   try {
-    // Fetch orders (populate product info via schema pre hook)
-    let orders = await Order.find({ user: req.user._id })
+    let orders = await Order.find({
+      user: req.user._id,
+      isCanceled: false,     
+    })
       .select(
-        "items totalPrice isPaid isDelivered deliveredAt paymentMethod expectedDeliveryDate deliveryStage delayMessage createdAt shippingAddress mobile"
+        "items totalPrice isPaid isDelivered deliveredAt paymentMethod expectedDeliveryDate deliveryStage delayMessage createdAt shippingAddress mobile isCanceled cancelReason canceledAt"
       )
       .sort({ createdAt: -1 });
 
-    // Compute & sync stages/delayMessage for each order so FE sees up-to-date progress
-    // Use Promise.all to do saves in parallel when needed
     const updatedOrders = await Promise.all(
       orders.map(async (ord) => {
-        // ord is a mongoose document
         return await computeAndSyncStages(ord);
       })
     );
@@ -231,7 +278,6 @@ router.get("/:id", auth, async (req, res) => {
     }
 
     res.json(order);
-
   } catch (error) {
     console.error("Get Order Error:", error);
     res.status(500).json({ message: "Server error" });

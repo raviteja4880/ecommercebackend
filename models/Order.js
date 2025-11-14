@@ -54,7 +54,7 @@ const orderSchema = new mongoose.Schema(
 
     // NEW FIELDS FOR LIVE TRACKING
     expectedDeliveryDate: { type: Date },
-    deliveryStage: { type: Number, default: 1 }, 
+    deliveryStage: { type: Number, default: 1 }, // 0 => canceled (optional), 1..4 normal
     delayMessage: { type: Boolean, default: false },
 
     assignedTo: {
@@ -62,6 +62,11 @@ const orderSchema = new mongoose.Schema(
       ref: "User",
       default: null,
     },
+
+    // CANCELLATION
+    isCanceled: { type: Boolean, default: false },
+    cancelReason: { type: String, default: "" },
+    canceledAt: { type: Date, default: null },
   },
   { timestamps: true }
 );

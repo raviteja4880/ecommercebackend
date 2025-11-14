@@ -1,3 +1,4 @@
+const EmailLog = require("../models/EmailLog");
 const Sib = require("sib-api-v3-sdk");
 
 const sendDeliveryEmail = async (to, order) => {
@@ -92,15 +93,34 @@ const sendDeliveryEmail = async (to, order) => {
 </table>
 `;
 
-    await transEmailApi.sendTransacEmail({
+    const result = await transEmailApi.sendTransacEmail({
       sender,
       to: [{ email: to }],
       subject: `Order Delivered • #${orderId.slice(-6).toUpperCase()}`,
       htmlContent,
     });
 
+    // Log successful delivery email
+    await EmailLog.create({
+      to,
+      subject: `Order Delivered • #${orderId.slice(-6).toUpperCase()}`,
+      orderId: order._id,
+      status: "sent",
+      messageId: result?.messageId || "",
+      meta: result,
+    });
+
   } catch (error) {
     console.error("Delivery Email Error:", error.message);
+
+    // Log failure
+    await EmailLog.create({
+      to,
+      subject: "Order Delivered (FAILED)",
+      orderId: order?._id,
+      status: "failed",
+      error: error.message,
+    });
   }
 };
 
@@ -119,7 +139,6 @@ const sendOrderConfirmationEmail = async (to, order) => {
     };
 
     const orderId = order._id.toString();
-
     const expectedDate = new Date(order.expectedDeliveryDate).toLocaleDateString(
       "en-IN",
       { day: "numeric", month: "short", year: "numeric" }
@@ -273,16 +292,161 @@ style="background:#f5f7fa;padding:20px 0;font-family:Arial,Helvetica,sans-serif;
 </table>
 `;
 
-    await transEmailApi.sendTransacEmail({
+     const result = await transEmailApi.sendTransacEmail({
       sender,
       to: [{ email: to }],
       subject: `Order Confirmed! #${orderId.slice(-6).toUpperCase()}`,
       htmlContent,
     });
 
+    // Log sent email
+    await EmailLog.create({
+      to,
+      subject: `Order Confirmed! #${orderId.slice(-6).toUpperCase()}`,
+      orderId: order._id,
+      messageId: result?.messageId || "",
+      status: "sent",
+      meta: result,
+    });
+
   } catch (err) {
     console.error("Order Confirmation Error:", err.message);
+
+    // Log failed email
+    await EmailLog.create({
+      to,
+      subject: "Order Confirmation (FAILED)",
+      orderId: order?._id,
+      status: "failed",
+      error: err.message,
+    });
   }
 };
 
-module.exports = { sendOrderConfirmationEmail, sendDeliveryEmail };
+const sendWelcomeEmail = async (to, user) => {
+  try {
+    if (!to) return;
+
+    const client = Sib.ApiClient.instance;
+    client.authentications["api-key"].apiKey = process.env.BREVO_API_KEY;
+    const transEmailApi = new Sib.TransactionalEmailsApi();
+
+    const sender = {
+      email: process.env.FROM_EMAIL || "onboarding@brevo.com",
+      name: "MyStore",
+    };
+
+    const htmlContent = `
+<table width="100%" cellpadding="0" cellspacing="0"
+style="background:#f5f7fa;padding:25px 0;font-family:Arial,Helvetica,sans-serif;">
+  <tr>
+    <td align="center">
+
+      <table width="600" cellpadding="0" cellspacing="0"
+        style="
+          background:#ffffff;
+          border-radius:14px;
+          padding:25px;
+          border:1px solid #e2e2e2;
+        ">
+
+        <!-- LOGO -->
+        <tr>
+          <td align="center" style="padding-bottom:15px;">
+            <img src="https://exclusive-jade-kaaf6575xb.edgeone.app/favicon.png"
+              width="70" />
+            <h2 style="margin:10px 0 0;font-size:24px;color:#0d6efd;">
+              Welcome to MyStore!
+            </h2>
+          </td>
+        </tr>
+
+        <!-- WELCOME ICON -->
+        <tr>
+          <td align="center" style="padding:10px 0;">
+            <div style="
+              width:90px;height:90px;border-radius:50%;
+              background:#e7f4ff;margin:auto;
+              display:flex;align-items:center;justify-content:center;
+            ">
+              <img src="https://cdn-icons-png.flaticon.com/512/847/847969.png"
+                width="48" height="48" />
+            </div>
+          </td>
+        </tr>
+
+        <!-- MESSAGE -->
+        <tr>
+          <td align="center" style="padding:20px 15px;">
+            <p style="font-size:16px;color:#333;line-height:1.6;margin:0;">
+              Hi <strong>${user.name}</strong>,<br>
+              We’re excited to welcome you to <strong>MyStore</strong>!  
+            </p>
+
+            <p style="font-size:15px;color:#555;line-height:1.6;margin-top:12px;">
+              Your account has been created successfully.<br>
+              You can now browse products, place orders, and track deliveries easily.
+            </p>
+          </td>
+        </tr>
+
+        <!-- BUTTON -->
+        <tr>
+          <td align="center" style="padding:25px 0;">
+            <a href="${process.env.CLIENT_URL || "https://tejacommerce.netlify.app"}"
+              style="
+                padding:12px 30px;
+                background:#0d6efd;
+                color:white;
+                border-radius:8px;
+                text-decoration:none;
+                font-size:15px;
+                font-weight:bold;
+              ">
+              Start Shopping
+            </a>
+          </td>
+        </tr>
+
+        <!-- FOOTER -->
+        <tr>
+          <td align="center" style="font-size:12px;color:#888;padding-top:15px;">
+            © ${new Date().getFullYear()} MyStore. All rights reserved.
+          </td>
+        </tr>
+
+      </table>
+    </td>
+  </tr>
+</table>
+`;
+
+    const result = await transEmailApi.sendTransacEmail({
+      sender,
+      to: [{ email: to }],
+      subject: `Welcome to MyStore, ${user.name}!`,
+      htmlContent,
+    });
+
+    // Log email
+    await EmailLog.create({
+      to,
+      subject: `Welcome to MyStore, ${user.name}!`,
+      status: "sent",
+      meta: result,
+    });
+
+  } catch (error) {
+    console.error("Welcome Email Error:", error.message);
+
+    await EmailLog.create({
+      to,
+      subject: "Welcome Email (FAILED)",
+      status: "failed",
+      error: error.message,
+    });
+  }
+};
+
+
+module.exports = { sendOrderConfirmationEmail, sendDeliveryEmail, sendWelcomeEmail };

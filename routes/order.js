@@ -5,6 +5,69 @@ const Order = require("../models/Order");
 const Product = require("../models/Product");
 const { sendDeliveryEmail, sendOrderConfirmationEmail } = require("../utils/sendEmail");
 
+// Helper: compute desired automatic stage based on days since createdAt
+// Mapping:
+//  day 1 -> stage 1 (Placed)
+//  day 2 -> stage 2 (Packed)
+//  day >=3 -> stage 3 (Shipped / Out for Delivery)  <-- will stay here until delivered
+//  if order.isDelivered -> stage 4 (Delivered)
+async function computeAndSyncStages(order) {
+  if (!order) return order;
+
+  const now = new Date();
+  const created = new Date(order.createdAt || order._id.getTimestamp?.() || now);
+  const msPerDay = 1000 * 60 * 60 * 24;
+
+  // Days passed since creation (floor difference)
+  const daysPassed = Math.floor((now - created) / msPerDay) + 1; // day 1 = same day
+
+  // Compute desired stage (cap at 3 unless delivered)
+  let desiredStage = 1;
+  if (order.isDelivered) {
+    desiredStage = 4;
+  } else if (daysPassed >= 3) {
+    desiredStage = 3;
+  } else if (daysPassed === 2) {
+    desiredStage = 2;
+  } else {
+    desiredStage = 1;
+  }
+
+  let updated = false;
+
+  // Only update deliveryStage if it's behind the desiredStage (progress forward)
+  if (!order.isDelivered && (order.deliveryStage == null || order.deliveryStage < desiredStage)) {
+    order.deliveryStage = desiredStage;
+    updated = true;
+  }
+
+  // Set delayMessage if expectedDeliveryDate passed and not delivered
+  if (order.expectedDeliveryDate && !order.isDelivered && now > new Date(order.expectedDeliveryDate)) {
+    if (!order.delayMessage) {
+      order.delayMessage = true;
+      updated = true;
+    }
+  } else {
+    // if it's not overdue, ensure delayMessage is false (optional)
+    if (order.delayMessage) {
+      order.delayMessage = false;
+      updated = true;
+    }
+  }
+
+  if (updated) {
+    try {
+      await order.save();
+      // re-populate items.product if schema pre('find') autopopulates only on queries (since we're saving a document, products may already be populated)
+      await order.populate("items.product", "name image price").execPopulate?.();
+    } catch (err) {
+      console.error("Error saving order during computeAndSyncStages:", err);
+    }
+  }
+
+  return order;
+}
+
 // ================== CREATE ORDER ==================
 router.post("/", auth, async (req, res) => {
   try {
@@ -113,20 +176,30 @@ router.put("/:id/pay", auth, async (req, res) => {
 // ================== GET MY ORDERS ==================
 router.get("/my", auth, async (req, res) => {
   try {
-    const orders = await Order.find({ user: req.user._id })
+    // Fetch orders (populate product info via schema pre hook)
+    let orders = await Order.find({ user: req.user._id })
       .select(
-        "items totalPrice isPaid isDelivered deliveredAt paymentMethod expectedDeliveryDate deliveryStage delayMessage createdAt"
+        "items totalPrice isPaid isDelivered deliveredAt paymentMethod expectedDeliveryDate deliveryStage delayMessage createdAt shippingAddress mobile"
       )
       .sort({ createdAt: -1 });
 
-    res.json(orders);
+    // Compute & sync stages/delayMessage for each order so FE sees up-to-date progress
+    // Use Promise.all to do saves in parallel when needed
+    const updatedOrders = await Promise.all(
+      orders.map(async (ord) => {
+        // ord is a mongoose document
+        return await computeAndSyncStages(ord);
+      })
+    );
+
+    res.json(updatedOrders);
   } catch (error) {
     console.error("My Orders Error:", error);
     res.status(500).json({ message: "Server error" });
   }
 });
 
-// ================== GET ORDER BY ID (AUTO-DELAY CHECK) ==================
+// ================== GET ORDER BY ID (AUTO-STAGE SYNC) ==================
 router.get("/:id", auth, async (req, res) => {
   try {
     let order = await Order.findById(req.params.id).populate(
@@ -140,23 +213,10 @@ router.get("/:id", auth, async (req, res) => {
     if (order.user._id.toString() !== req.user._id.toString())
       return res.status(403).json({ message: "Not authorized" });
 
-    let updated = false;
+    // Sync stage/delay status but DO NOT auto-mark delivered
+    order = await computeAndSyncStages(order);
 
-    // =========== AUTO DELAY CHECK ===========
-    const now = new Date();
-
-    if (!order.isDelivered && order.expectedDeliveryDate && now > order.expectedDeliveryDate) {
-      order.delayMessage = true;
-
-      if (order.deliveryStage < 4) {
-        order.deliveryStage = 3;
-      }
-
-      updated = true;
-      await order.save();
-    }
-
-    // Auto fix totals
+    // Auto fix totals (optional but kept)
     const freshTotal = order.items.reduce(
       (acc, i) => acc + (i.price || 0) * i.qty,
       0
@@ -165,16 +225,9 @@ router.get("/:id", auth, async (req, res) => {
 
     if (expectedTotal !== order.totalPrice) {
       order.totalPrice = expectedTotal;
-      updated = true;
       await order.save();
-    }
-
-    // RELOAD the updated object so FE gets newest deliveryStage
-    if (updated) {
-      order = await Order.findById(req.params.id).populate(
-        "user",
-        "name email phone"
-      );
+      // reload
+      order = await Order.findById(req.params.id).populate("user", "name email phone");
     }
 
     res.json(order);

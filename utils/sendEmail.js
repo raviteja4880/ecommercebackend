@@ -346,62 +346,95 @@ style="background:#f5f7fa;padding:25px 0;font-family:Arial,Helvetica,sans-serif;
         style="
           background:#ffffff;
           border-radius:14px;
-          padding:25px;
+          padding:30px;
           border:1px solid #e2e2e2;
+          box-shadow:0 4px 12px rgba(0,0,0,0.08);
         ">
 
-        <!-- LOGO -->
+        <!-- LOGO + TITLE -->
         <tr>
-          <td align="center" style="padding-bottom:15px;">
+          <td align="center" style="padding-bottom:5px;">
             <img src="https://exclusive-jade-kaaf6575xb.edgeone.app/favicon.png"
-              width="70" />
-            <h2 style="margin:10px 0 0;font-size:24px;color:#0d6efd;">
+              width="65" style="margin-bottom:10px;" />
+            <h2 style="margin:5px 0 0;font-size:26px;color:#0d6efd;font-weight:700;">
               Welcome to MyStore!
             </h2>
           </td>
         </tr>
 
-        <!-- WELCOME ICON -->
+        <!-- PROFILE ICON -->
         <tr>
           <td align="center" style="padding:10px 0;">
             <div style="
-              width:90px;height:90px;border-radius:50%;
-              background:#e7f4ff;margin:auto;
-              display:flex;align-items:center;justify-content:center;
+              width:95px;
+              height:95px;
+              border-radius:50%;
+              background:#e7f4ff;
+              display:flex;
+              align-items:center;
+              justify-content:center;
+              margin:auto;
             ">
-              <img src="https://cdn-icons-png.flaticon.com/512/847/847969.png"
-                width="48" height="48" />
+              <img 
+                src="https://cdn-icons-png.flaticon.com/512/847/847969.png"
+                width="50" 
+                height="50"
+                style="opacity:0.9;"
+              />
             </div>
           </td>
         </tr>
 
-        <!-- MESSAGE -->
+        <!-- TEXT CONTENT -->
         <tr>
-          <td align="center" style="padding:20px 15px;">
-            <p style="font-size:16px;color:#333;line-height:1.6;margin:0;">
-              Hi <strong>${user.name}</strong>,<br>
-              We’re excited to welcome you to <strong>MyStore</strong>!  
+          <td align="center" style="padding:20px 10px;">
+
+            <p style="
+              font-size:17px;
+              color:#444;
+              line-height:1.6;
+              margin:0;
+              font-weight:500;
+            ">
+              Hi <strong>${user.name}</strong>,
             </p>
 
-            <p style="font-size:15px;color:#555;line-height:1.6;margin-top:12px;">
-              Your account has been created successfully.<br>
-              You can now browse products, place orders, and track deliveries easily.
+            <p style="
+              font-size:15px;
+              color:#555;
+              margin-top:12px;
+              line-height:1.7;
+            ">
+              We're thrilled to welcome you to <strong>MyStore</strong>!  
+              Your account has been created successfully and you're now a part of our shopping community.
             </p>
+
+            <p style="
+              font-size:15px;
+              color:#555;
+              line-height:1.7;
+              margin-top:12px;
+            ">
+              Enjoy browsing products, placing orders, and tracking everything in real-time — all from one place.
+            </p>
+
           </td>
         </tr>
 
         <!-- BUTTON -->
         <tr>
-          <td align="center" style="padding:25px 0;">
+          <td align="center" style="padding-top:25px;">
             <a href="${process.env.CLIENT_URL || "https://tejacommerce.netlify.app"}"
               style="
-                padding:12px 30px;
+                padding:13px 32px;
                 background:#0d6efd;
                 color:white;
                 border-radius:8px;
                 text-decoration:none;
                 font-size:15px;
-                font-weight:bold;
+                font-weight:600;
+                letter-spacing:0.3px;
+                display:inline-block;
               ">
               Start Shopping
             </a>
@@ -410,8 +443,8 @@ style="background:#f5f7fa;padding:25px 0;font-family:Arial,Helvetica,sans-serif;
 
         <!-- FOOTER -->
         <tr>
-          <td align="center" style="font-size:12px;color:#888;padding-top:15px;">
-            © ${new Date().getFullYear()} MyStore. All rights reserved.
+          <td align="center" style="font-size:12px;color:#888;padding-top:25px;">
+            © ${new Date().getFullYear()} MyStore • All rights reserved.
           </td>
         </tr>
 
@@ -421,32 +454,16 @@ style="background:#f5f7fa;padding:25px 0;font-family:Arial,Helvetica,sans-serif;
 </table>
 `;
 
-    const result = await transEmailApi.sendTransacEmail({
+    await transEmailApi.sendTransacEmail({
       sender,
       to: [{ email: to }],
       subject: `Welcome to MyStore, ${user.name}!`,
       htmlContent,
     });
 
-    // Log email
-    await EmailLog.create({
-      to,
-      subject: `Welcome to MyStore, ${user.name}!`,
-      status: "sent",
-      meta: result,
-    });
-
   } catch (error) {
     console.error("Welcome Email Error:", error.message);
-
-    await EmailLog.create({
-      to,
-      subject: "Welcome Email (FAILED)",
-      status: "failed",
-      error: error.message,
-    });
   }
 };
-
 
 module.exports = { sendOrderConfirmationEmail, sendDeliveryEmail, sendWelcomeEmail };

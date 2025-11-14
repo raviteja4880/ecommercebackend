@@ -24,31 +24,26 @@ router.get("/my-orders", auth, deliveryOnly, async (req, res) => {
 // ================== MARK AS DELIVERED ==================
 router.put("/:id/deliver", auth, deliveryOnly, async (req, res) => {
   try {
-    const order = await Order.findById(req.params.id).populate("user", "name email");
+    const order = await Order.findById(req.params.id)
+      .populate("user", "name email phone")
+      .populate("assignedTo", "name email");
+
     if (!order) return res.status(404).json({ message: "Order not found" });
 
-    if (order.assignedTo?.toString() !== req.user._id.toString()) {
-      return res
-        .status(403)
-        .json({ message: "You are not assigned to this order" });
+    if (order.assignedTo?._id.toString() !== req.user._id.toString()) {
+      return res.status(403).json({ message: "You are not assigned to this order" });
     }
 
-    // Prevent duplicate updates
     if (order.isDelivered) {
       return res.status(400).json({ message: "Order already delivered" });
     }
 
-    // Update delivery status
+    // Mark delivered
     order.isDelivered = true;
     order.deliveredAt = Date.now();
     order.status = "Delivered";
 
-    res.json({
-    message: "Order delivered",
-    deliveredAt: order.deliveredAt
-  });
-
-    // If COD, mark as paid on delivery
+    // If COD, mark as paid
     if (order.paymentMethod === "COD" && !order.isPaid) {
       order.isPaid = true;
       order.paidAt = Date.now();
@@ -56,36 +51,70 @@ router.put("/:id/deliver", auth, deliveryOnly, async (req, res) => {
         status: "paid",
         method: "COD",
         update_time: new Date().toISOString(),
-        confirmedBy: req.user.name || "Delivery Partner",
+        confirmedBy: req.user.name,
       };
     }
 
     const updatedOrder = await order.save();
 
-    // Send email notification to customer (Brevo)
+    // SAVE TO DeliveredOrder SCHEMA
+    const DeliveredOrder = require("../../models/DeliveredOrder");
+
+    await DeliveredOrder.create({
+      originalOrderId: order._id,
+
+      user: {
+        _id: order.user._id,
+        name: order.user.name,
+        email: order.user.email,
+        phone: order.user.phone,
+      },
+
+      items: order.items.map((i) => ({
+        name: i.name,
+        qty: i.qty,
+        price: i.price,
+        image: i.image,
+      })),
+
+      shippingAddress: order.shippingAddress,
+      mobile: order.mobile,
+      paymentMethod: order.paymentMethod,
+
+      totalPrice: order.totalPrice,
+      itemsPrice: order.itemsPrice,
+      shippingPrice: order.shippingPrice,
+
+      deliveredAt: order.deliveredAt,
+
+      assignedTo: {
+        _id: req.user._id,
+        name: req.user.name,
+        email: req.user.email,
+      },
+
+      paymentResult: order.paymentResult,
+      deliveryStage: order.deliveryStage,
+    });
+
+    // Send Delivered Email
     if (order.user?.email) {
       try {
         await sendDeliveryEmail(order.user.email, updatedOrder);
-        console.log(` Delivery email sent to ${order.user.email}`);
-      } catch (emailError) {
-        console.error("❌ Failed to send delivery email:", emailError.message);
+      } catch (err) {
+        console.error("Email send failed:", err.message);
       }
     }
 
     res.json({
       success: true,
-      message:
-        order.paymentMethod === "COD"
-          ? "Order delivered, COD collected, and email sent to customer."
-          : "Order delivered and confirmation email sent to customer.",
+      message: "Order delivered and saved to Delivered Orders.",
       order: updatedOrder,
     });
+
   } catch (error) {
-    console.error("Delivery Update Error:", error.message);
-    res.status(500).json({
-      message: "Delivery update failed",
-      error: error.message,
-    });
+    console.error("Delivery Error:", error.message);
+    res.status(500).json({ message: "Delivery update failed" });
   }
 });
 

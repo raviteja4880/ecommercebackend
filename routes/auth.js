@@ -15,12 +15,12 @@ router.post("/register", async (req, res) => {
     if (existing)
       return res.status(400).json({ message: "User already exists" });
 
-    // Restrict multiple admins
-    if (role === "admin") {
-      const adminCount = await User.countDocuments({ role: "admin" });
-      if (adminCount > 0) {
+    // Restrict multiple superadmins
+    if (role === "superadmin") {
+      const superAdminCount = await User.countDocuments({ role: "superadmin" });
+      if (superAdminCount > 0) {
         return res.status(403).json({
-          message: "Super admin already exists. Cannot create another admin.",
+          message: "A Super Admin already exists. Cannot create another one.",
         });
       }
     }

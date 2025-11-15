@@ -7,7 +7,8 @@ const { sendDeliveryEmail } = require("../../utils/sendEmail");
 // ================== GET ASSIGNED ORDERS ==================
 router.get("/my-orders", auth, deliveryOnly, async (req, res) => {
   try {
-    const orders = await Order.find({ assignedTo: req.user._id })
+    const orders = await Order.find({ assignedTo: req.user._id, isCanceled: false})
+
       .populate("user", "name email phone")
       .sort({ createdAt: -1 });
 

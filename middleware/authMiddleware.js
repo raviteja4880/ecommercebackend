@@ -1,15 +1,17 @@
 const jwt = require("jsonwebtoken");
 const User = require("../models/User");
 
-// Authenticate all users
+// ===================== AUTHENTICATION =====================
 const auth = async (req, res, next) => {
   try {
     let token;
+
     if (req.headers.authorization?.startsWith("Bearer")) {
       token = req.headers.authorization.split(" ")[1];
     }
 
-    if (!token) return res.status(401).json({ message: "Not authorized, token missing" });
+    if (!token)
+      return res.status(401).json({ message: "Not authorized, token missing" });
 
     const decoded = jwt.verify(token, process.env.JWT_SECRET);
     req.user = await User.findById(decoded.id).select("-password");
@@ -23,7 +25,9 @@ const auth = async (req, res, next) => {
   }
 };
 
-// Admin only
+// ===================== ROLE-BASED ACCESS =====================
+
+//  Admin only
 const adminOnly = (req, res, next) => {
   if (!req.user || req.user.role !== "admin") {
     return res.status(403).json({ message: "Access denied: Admins only" });
@@ -31,12 +35,32 @@ const adminOnly = (req, res, next) => {
   next();
 };
 
-// Delivery partner only
-const deliveryOnly = (req, res, next) => {
-  if (!req.user || req.user.role !== "delivery") {
-    return res.status(403).json({ message: "Access denied: Delivery partners only" });
+// Super Admin only
+const superAdminOnly = (req, res, next) => {
+  if (!req.user || req.user.role !== "superadmin") {
+    return res.status(403).json({ message: "Access denied: Super Admins only" });
   }
   next();
 };
 
-module.exports = { auth, adminOnly, deliveryOnly };
+// Delivery Partner only
+const deliveryOnly = (req, res, next) => {
+  if (!req.user || req.user.role !== "delivery") {
+    return res
+      .status(403)
+      .json({ message: "Access denied: Delivery partners only" });
+  }
+  next();
+};
+
+// Admin OR Super Admin
+const adminOrSuperAdmin = (req, res, next) => {
+  if (!req.user || !["admin", "superadmin"].includes(req.user.role)) {
+    return res
+      .status(403)
+      .json({ message: "Access denied: Admins or Super Admins only" });
+  }
+  next();
+};
+
+module.exports = { auth, adminOnly, deliveryOnly, superAdminOnly, adminOrSuperAdmin };

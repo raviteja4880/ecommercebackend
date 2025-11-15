@@ -34,13 +34,10 @@ const sendDeliveryEmail = async (to, order) => {
         <!-- DELIVERED ICON -->
         <tr>
           <td align="center" style="padding:10px 0;">
-            <div style="
-              width:85px;height:85px;border-radius:50%;
-              background:#e7f8ed;margin:auto;
-              display:flex;align-items:center;justify-content:center;">
-              <img src="https://cdn-icons-png.flaticon.com/512/845/845646.png"
-                width="45" height="45" />
-            </div>
+            <svg width="45" height="45" viewBox="0 0 24 24" 
+              fill="#28a745" xmlns="http://www.w3.org/2000/svg">
+              <path d="M9 16.17l-3.88-3.88-1.41 1.41L9 19 21 7l-1.41-1.41z" />
+            </svg>
             <p style="margin:15px 0 0;font-size:15px;color:#333;">
               Your order <b>#${orderId.slice(-6).toUpperCase()}</b> has been delivered successfully!
             </p>
@@ -375,12 +372,11 @@ style="background:#f5f7fa;padding:25px 0;font-family:Arial,Helvetica,sans-serif;
               justify-content:center;
               margin:auto;
             ">
-              <img 
-                src="https://cdn-icons-png.flaticon.com/512/847/847969.png"
-                width="50" 
-                height="50"
-                style="opacity:0.9;"
-              />
+              <svg width="50" height="50" viewBox="0 0 24 24" 
+                fill="#6c757d" xmlns="http://www.w3.org/2000/svg">
+                <path d="M12 12c2.7 0 5-2.3 5-5s-2.3-5-5-5-5 
+                2.3-5 5 2.3 5 5 5zm0 2c-3.3 0-10 1.7-10 5v3h20v-3c0-3.3-6.7-5-10-5z"/>
+              </svg>
             </div>
           </td>
         </tr>
@@ -466,4 +462,171 @@ style="background:#f5f7fa;padding:25px 0;font-family:Arial,Helvetica,sans-serif;
   }
 };
 
-module.exports = { sendOrderConfirmationEmail, sendDeliveryEmail, sendWelcomeEmail };
+// ===================== ORDER CANCELLED EMAIL =====================
+const sendOrderCancelledEmail = async (to, order) => {
+  try {
+    if (!to) return;
+
+    const client = Sib.ApiClient.instance;
+    client.authentications["api-key"].apiKey = process.env.BREVO_API_KEY;
+    const transEmailApi = new Sib.TransactionalEmailsApi();
+
+    const sender = {
+      email: process.env.FROM_EMAIL || "onboarding@brevo.com",
+      name: "MyStore",
+    };
+
+    const orderId = order._id.toString();
+    const cancelReason =
+      order.cancelReason || "No specific reason provided by user.";
+
+    //Inline SVG for Red Cancel Icon (perfectly centered)
+    const CANCEL_ICON = `
+      <svg width="50" height="50" viewBox="0 0 24 24" fill="#dc3545" 
+        xmlns="http://www.w3.org/2000/svg">
+        <path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10
+          10-4.48 10-10S17.52 2 12 2zm5 13.59L15.59 
+          17 12 13.41 8.41 17 7 15.59 10.59 12 
+          7 8.41 8.41 7 12 10.59 15.59 7 
+          17 8.41 13.41 12 17 15.59z"/>
+      </svg>
+    `;
+
+    const htmlContent = `
+<table width="100%" cellpadding="0" cellspacing="0"
+style="background:#f8f9fa;padding:20px 0;font-family:Arial,Helvetica,sans-serif;">
+  <tr>
+    <td align="center">
+      <table width="600" cellpadding="0" cellspacing="0"
+        style="background:#ffffff;border-radius:12px;padding:25px;border:1px solid #e2e2e2;">
+
+        <!-- HEADER -->
+        <tr>
+          <td align="center" style="padding-bottom:15px;">
+            <img src="https://exclusive-jade-kaaf6575xb.edgeone.app/favicon.png" width="70" />
+            <h2 style="margin:10px 0 0;font-size:24px;color:#dc3545;">Order Cancelled</h2>
+          </td>
+        </tr>
+
+        <!-- CANCEL ICON -->
+        <tr>
+          <td align="center" style="padding:10px 0;">
+            ${CANCEL_ICON}
+            <p style="margin:15px 0 0;font-size:15px;color:#333;">
+              Your order <b>#${orderId.slice(-6).toUpperCase()}</b> has been cancelled.
+            </p>
+          </td>
+        </tr>
+
+        <!-- CANCELLATION REASON -->
+        <tr>
+          <td style="padding:15px 0;">
+            <div style="
+              background:#fcebea;
+              border-left:4px solid #dc3545;
+              padding:12px 16px;
+              border-radius:8px;
+              font-size:14px;
+              color:#721c24;
+            ">
+              <strong>Reason:</strong> ${cancelReason}
+            </div>
+          </td>
+        </tr>
+
+        <!-- ORDER SUMMARY -->
+        <tr>
+          <td style="padding-top:15px;">
+            <h3 style="font-size:18px;color:#333;margin-bottom:12px;">Order Summary</h3>
+            <table width="100%">
+              ${order.items
+                .map(
+                  (item) => `
+                <tr>
+                  <td width="60" style="padding:10px 0;">
+                    <img src="${item.image}" width="55" height="55"
+                      style="border-radius:6px;object-fit:cover;border:1px solid #ddd;" />
+                  </td>
+                  <td style="font-size:14px;color:#333;">${item.name} × ${
+                    item.qty
+                  }</td>
+                  <td align="right" style="font-size:14px;color:#333;">
+                    ₹${(item.price * item.qty).toLocaleString("en-IN")}
+                  </td>
+                </tr>
+              `
+                )
+                .join("")}
+            </table>
+
+            <hr style="border:0;border-top:1px solid #ddd;margin:15px 0;" />
+
+            <table width="100%">
+              <tr>
+                <td style="font-size:16px;font-weight:bold;color:#000;">Order Total</td>
+                <td align="right" style="font-size:16px;font-weight:bold;color:#000;">
+                  ₹${order.totalPrice.toLocaleString("en-IN")}
+                </td>
+              </tr>
+            </table>
+          </td>
+        </tr>
+
+        <!-- SUPPORT MESSAGE -->
+        <tr>
+          <td align="center" style="padding-top:20px;">
+            <p style="font-size:14px;color:#555;max-width:500px;margin:auto;line-height:1.6;">
+              If you didn’t cancel this order or need help, please contact our support team.
+            </p>
+            <a href="${process.env.CLIENT_URL || "https://tejacommerce.netlify.app"}/contact"
+              style="padding:10px 25px;background:#dc3545;color:white;
+              text-decoration:none;border-radius:6px;display:inline-block;margin-top:10px;">
+              Contact Support
+            </a>
+          </td>
+        </tr>
+
+        <!-- FOOTER -->
+        <tr>
+          <td style="padding:15px 0;text-align:center;font-size:12px;color:#999;">
+            © ${new Date().getFullYear()} MyStore. All rights reserved.
+          </td>
+        </tr>
+
+      </table>
+    </td>
+  </tr>
+</table>
+`;
+
+    // Send email
+    const result = await transEmailApi.sendTransacEmail({
+      sender,
+      to: [{ email: to }],
+      subject: `Order Cancelled • #${orderId.slice(-6).toUpperCase()}`,
+      htmlContent,
+    });
+
+    // Log success
+    await EmailLog.create({
+      to,
+      subject: `Order Cancelled • #${orderId.slice(-6).toUpperCase()}`,
+      orderId: order._id,
+      status: "sent",
+      messageId: result?.messageId || "",
+      meta: result,
+    });
+  } catch (error) {
+    console.error("Cancel Email Error:", error.message);
+
+    await EmailLog.create({
+      to,
+      subject: "Order Cancelled (FAILED)",
+      orderId: order?._id,
+      status: "failed",
+      error: error.message,
+    });
+  }
+};
+
+module.exports = { sendOrderConfirmationEmail, sendDeliveryEmail, sendWelcomeEmail, sendOrderCancelledEmail };

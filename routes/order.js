@@ -157,8 +157,9 @@ router.put("/:id/cancel", auth, async (req, res) => {
   try {
     const { reason } = req.body;
 
-    let order = await Order.findById(req.params.id).populate("user", "email name");
-
+    let order = await Order.findById(req.params.id)
+      .populate("user", "email name")
+      .populate("assignedTo", "email name"); 
     if (!order)
       return res.status(404).json({ message: "Order not found" });
 
@@ -166,25 +167,65 @@ router.put("/:id/cancel", auth, async (req, res) => {
       return res.status(403).json({ message: "Not authorized" });
 
     if (order.isDelivered)
-      return res.status(400).json({ message: "Delivered orders cannot be cancelled" });
+      return res
+        .status(400)
+        .json({ message: "Delivered orders cannot be cancelled" });
 
     if (order.isCanceled)
       return res.status(400).json({ message: "Order already cancelled" });
 
-    // Mark cancel state
+    // Mark cancellation fields
     order.isCanceled = true;
     order.cancelReason = reason || "User requested cancellation";
     order.canceledAt = Date.now();
     order.status = "Cancelled";
-
-    // optionally set deliveryStage to 0 (so FE shows no progress)
     order.deliveryStage = 0;
     order.delayMessage = false;
 
     const updatedOrder = await order.save();
 
+    // Import email utility
+    const {
+      sendOrderCancelledEmail,
+      sendDeliveryEmail,
+    } = require("../../utils/sendEmail");
+
+    // Notify Customer via Email
+    if (order.user?.email) {
+      try {
+        await sendOrderCancelledEmail(order.user.email, updatedOrder);
+        console.log(`Cancel email sent to customer: ${order.user.email}`);
+      } catch (err) {
+        console.error("Failed to send cancellation email:", err.message);
+      }
+    }
+
+    // Notify Delivery Partner if assigned
+    if (order.assignedTo?.email) {
+      try {
+        await sendDeliveryEmail(
+          order.assignedTo.email,
+          {
+            ...updatedOrder.toObject(),
+            items: updatedOrder.items,
+            totalPrice: updatedOrder.totalPrice,
+          }
+        );
+        console.log(
+          `Cancellation alert sent to delivery partner: ${order.assignedTo.email}`
+        );
+      } catch (err) {
+        console.error(
+          "Failed to send cancellation email to delivery partner:",
+          err.message
+        );
+      }
+    }
+
+    // Respond to frontend
     res.json({
-      message: "Order cancelled successfully",
+      success: true,
+      message: "Order cancelled successfully and notifications sent.",
       order: updatedOrder,
     });
   } catch (error) {

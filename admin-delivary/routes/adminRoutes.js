@@ -160,25 +160,28 @@ router.get("/superadmin/analytics", auth, superAdminOnly, async (req, res) => {
     const cancelledOrders = await Order.countDocuments({ isCanceled: true });
     const totalUsers = await User.countDocuments({ role: "user" });
     const totalAdmins = await User.countDocuments({ role: "admin" });
-    const totalDeliveryPartners = await User.countDocuments({
-      role: "delivery",
-    });
+    const totalDeliveryPartners = await User.countDocuments({ role: "delivery" });
 
     // Calculate total revenue from paid orders
     const revenueData = await Order.aggregate([
       { $match: { isPaid: true } },
       { $group: { _id: null, totalRevenue: { $sum: "$totalPrice" } } },
     ]);
-
     const totalRevenue = revenueData[0]?.totalRevenue || 0;
 
-    // Latest 5 orders
-    const recentOrders = await Order.find()
+    // Fetch ALL orders (for accurate analytics)
+    const allOrders = await Order.find()
       .sort({ createdAt: -1 })
-      .limit(5)
       .populate("user", "name email");
 
-    res.json({
+    // Safety: ensure we always have an array
+    const safeAllOrders = Array.isArray(allOrders) ? allOrders : [];
+
+    // Keep recent orders optional for UI (first 5)
+    const recentOrders = safeAllOrders.slice(0, 5);
+
+    // Respond with explicit keys
+    return res.json({
       totalOrders,
       deliveredOrders,
       cancelledOrders,
@@ -186,13 +189,13 @@ router.get("/superadmin/analytics", auth, superAdminOnly, async (req, res) => {
       totalAdmins,
       totalDeliveryPartners,
       totalRevenue,
-      recentOrders,
+      recentOrders,   // for small table display
+      allOrders: safeAllOrders, // for charts & accurate analytics
     });
   } catch (error) {
-    console.error("Analytics Fetch Error:", error.message);
-    res
-      .status(500)
-      .json({ message: "Failed to load analytics data", error });
+    console.error("Analytics Fetch Error:", error);
+    // include stack for debugging (remove in production)
+    return res.status(500).json({ message: "Failed to load analytics data", error: error?.message, stack: error?.stack });
   }
 });
 

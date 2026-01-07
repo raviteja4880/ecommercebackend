@@ -20,32 +20,56 @@ const generateOTP = () =>
 const generateToken = (id) =>
   jwt.sign({ id }, process.env.JWT_SECRET, { expiresIn: "24d" });
 
-const OTP_EXPIRY = 2 * 60 * 1000; // 2 MINUTES
+const OTP_EXPIRY = 5 * 60 * 5000; // 5 MINUTES
 
 /* =========================================================
    REGISTER (OTP BASED)
 ========================================================= */
 router.post("/register", async (req, res) => {
-  const { name, email, password, phone } = req.body;
+  try {
+    const { name, email, password, phone } = req.body;
 
-  if (await User.findOne({ email })) {
-    return res.status(400).json({ message: "User already exists" });
+    if (!name || !email || !password) {
+      return res.status(400).json({
+        message: "Name, email and password are required",
+      });
+    }
+
+    const existingUser = await User.findOne({ email });
+    if (existingUser) {
+      return res.status(400).json({ message: "User already exists" });
+    }
+
+    const otp = generateOTP();
+
+    // Find existing OTP instead of deleting blindly
+    const existingOtp = await Otp.findOne({
+      email,
+      purpose: "register",
+    });
+
+    if (existingOtp) {
+      existingOtp.otp = otp;
+      existingOtp.expiresAt = Date.now() + OTP_EXPIRY;
+      await existingOtp.save();
+    } else {
+      await Otp.create({
+        email,
+        otp,
+        purpose: "register",
+        expiresAt: Date.now() + OTP_EXPIRY,
+      });
+    }
+
+    await sendVerifyOtpEmail(email, { name, otp });
+
+    res.json({
+      message: "OTP sent (valid for 10 minutes)",
+    });
+  } catch (error) {
+    console.error("REGISTER ERROR:", error);
+    res.status(500).json({ message: "Registration failed" });
   }
-
-  await Otp.deleteOne({ email, purpose: "register" });
-
-  const otp = generateOTP();
-
-  await Otp.create({
-    email,
-    otp,
-    purpose: "register",
-    expiresAt: Date.now() + OTP_EXPIRY,
-  });
-
-  await sendVerifyOtpEmail(email, { name, otp });
-
-  res.json({ message: "OTP sent (valid for 2 minutes)" });
 });
 
 /* =========================================================
@@ -58,17 +82,22 @@ router.post("/verify-otp", async (req, res) => {
     if (!name || !email || !password || !otp) {
       return res.status(400).json({
         message: "Name, email, password and OTP are required",
-      });
+      }); 
     }
 
     const record = await Otp.findOne({ email, purpose: "register" });
 
     if (!record) {
-      return res.status(400).json({ message: "OTP not found or expired" });
+      return res.status(400).json({
+        message: "OTP not found. Please request a new one.",
+      });
     }
 
     if (record.expiresAt < Date.now()) {
-      return res.status(400).json({ message: "OTP expired" });
+      await Otp.deleteOne({ _id: record._id });
+      return res.status(400).json({
+        message: "OTP expired. Please request a new one.",
+      });
     }
 
     if (record.otp !== String(otp)) {
@@ -92,8 +121,8 @@ router.post("/verify-otp", async (req, res) => {
       token: generateToken(user._id),
       user,
     });
-  } catch (error) {
-    console.error("VERIFY OTP ERROR:", error);
+  } catch (err) {
+    console.error("VERIFY OTP ERROR:", err);
     res.status(500).json({ message: "Server error" });
   }
 });
@@ -157,48 +186,90 @@ router.post("/login", async (req, res) => {
    FORGOT PASSWORD
 ========================================================= */
 router.post("/forgot-password", async (req, res) => {
-  const { email } = req.body;
+  try {
+    const { email } = req.body;
 
-  const user = await User.findOne({ email });
-  if (!user) {
-    return res.status(404).json({ message: "User not found" });
+    const user = await User.findOne({ email });
+    if (!user) {
+      return res.status(404).json({ message: "User not found" });
+    }
+
+    // Remove old OTP
+    await Otp.deleteOne({ email, purpose: "reset_password" });
+
+    const otp = generateOTP();
+
+    // OTP IS SAVED HERE
+    const savedOtp = await Otp.create({
+      email,
+      otp,
+      purpose: "reset_password",
+      expiresAt: Date.now() + OTP_EXPIRY,
+    });
+
+    // Email must NEVER block logic
+    try {
+      await sendResetPasswordOtpEmail(email, {
+        name: user.name,
+        otp,
+      });
+    } catch (mailErr) {
+      console.error("RESET PASSWORD EMAIL FAILED:", mailErr.message);
+    }
+
+    res.json({
+      message: "OTP generated for password reset",
+    });
+  } catch (err) {
+    console.error("FORGOT PASSWORD ERROR:", err);
+    res.status(500).json({ message: "Forgot password failed" });
   }
-
-  await Otp.deleteOne({ email, purpose: "reset_password" });
-
-  const otp = generateOTP();
-
-  await Otp.create({
-    email,
-    otp,
-    purpose: "reset_password",
-    expiresAt: Date.now() + OTP_EXPIRY,
-  });
-
-  await sendResetPasswordOtpEmail(email, { name: user.name, otp });
-
-  res.json({ message: "OTP sent for password reset (2 min valid)" });
 });
+
 
 /* =========================================================
    RESET PASSWORD
 ========================================================= */
 router.post("/reset-password", async (req, res) => {
-  const { email, otp, newPassword } = req.body;
+  try {
+    const { email, otp, newPassword } = req.body;
 
-  const record = await Otp.findOne({ email, purpose: "reset_password" });
+    if (!email || !otp || !newPassword) {
+      return res.status(400).json({ message: "All fields are required" });
+    }
 
-  if (!record || record.otp !== otp || record.expiresAt < Date.now()) {
-    return res.status(400).json({ message: "Invalid or expired OTP" });
+    const record = await Otp.findOne({
+      email,
+      purpose: "reset_password",
+    });
+
+    if (!record) {
+      return res.status(400).json({ message: "OTP not found" });
+    }
+
+    if (record.expiresAt < Date.now()) {
+      return res.status(400).json({ message: "OTP expired" });
+    }
+
+    if (record.otp !== String(otp)) {
+      return res.status(400).json({ message: "Invalid OTP" });
+    }
+
+    const user = await User.findOne({ email });
+    if (!user) {
+      return res.status(404).json({ message: "User not found" });
+    }
+
+    user.password = newPassword;
+    await user.save(); 
+
+    await Otp.deleteOne({ email, purpose: "reset_password" });
+
+    res.json({ message: "Password reset successful" });
+  } catch (err) {
+    console.error("RESET PASSWORD ERROR:", err);
+    res.status(500).json({ message: "Reset password failed" });
   }
-
-  const user = await User.findOne({ email });
-  user.password = newPassword;
-  await user.save();
-
-  await Otp.deleteOne({ email, purpose: "reset_password" });
-
-  res.json({ message: "Password reset successful" });
 });
 
 /* =========================================================

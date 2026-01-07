@@ -52,31 +52,50 @@ router.post("/register", async (req, res) => {
    VERIFY OTP
 ========================================================= */
 router.post("/verify-otp", async (req, res) => {
-  const { name, email, password, phone, otp } = req.body;
+  try {
+    const { name, email, password, phone, otp } = req.body;
 
-  const record = await Otp.findOne({ email, purpose: "register" });
+    if (!name || !email || !password || !otp) {
+      return res.status(400).json({
+        message: "Name, email, password and OTP are required",
+      });
+    }
 
-  if (!record || record.otp !== otp || record.expiresAt < Date.now()) {
-    return res.status(400).json({ message: "Invalid or expired OTP" });
+    const record = await Otp.findOne({ email, purpose: "register" });
+
+    if (!record) {
+      return res.status(400).json({ message: "OTP not found or expired" });
+    }
+
+    if (record.expiresAt < Date.now()) {
+      return res.status(400).json({ message: "OTP expired" });
+    }
+
+    if (record.otp !== String(otp)) {
+      return res.status(400).json({ message: "Invalid OTP" });
+    }
+
+    const user = await User.create({
+      name,
+      email,
+      password,
+      phone,
+      isEmailVerified: true,
+      status: "active",
+    });
+
+    await Otp.deleteOne({ email, purpose: "register" });
+
+    sendWelcomeEmail(email, { name }).catch(() => {});
+
+    res.json({
+      token: generateToken(user._id),
+      user,
+    });
+  } catch (error) {
+    console.error("VERIFY OTP ERROR:", error);
+    res.status(500).json({ message: "Server error" });
   }
-
-  const user = await User.create({
-    name,
-    email,
-    password,
-    phone,
-    isEmailVerified: true,
-    status: "active",
-  });
-
-  await Otp.deleteOne({ email, purpose: "register" });
-
-  sendWelcomeEmail(email, { name }).catch(() => {});
-
-  res.json({
-    token: generateToken(user._id),
-    user,
-  });
 });
 
 /* =========================================================

@@ -3,7 +3,7 @@
   const { auth } = require("../middleware/authMiddleware");
   const Order = require("../models/Order");
   const Product = require("../models/Product");
-  const { sendOrderCancelledEmail, sendDeliveryEmail, sendOrderConfirmationEmail } = require("../utils/sendEmail");
+  const { sendOrderCancelledEmail, sendDeliveryEmail, sendOrderConfirmationEmail } = require("../utils/email/sendEmail");
 
   // Function to auto-compute and sync order stages
   async function computeAndSyncStages(order) {

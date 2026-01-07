@@ -2,7 +2,7 @@ const express = require("express");
 const router = express.Router();
 const Order = require("../../models/Order");
 const { auth, deliveryOnly } = require("../../middleware/authMiddleware");
-const { sendDeliveryEmail } = require("../../utils/sendEmail");
+const { sendDeliveryEmail } = require("../../utils/email/sendEmail");
 
 // ================== GET ASSIGNED ORDERS ==================
 router.get("/my-orders", auth, deliveryOnly, async (req, res) => {

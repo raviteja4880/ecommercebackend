@@ -189,12 +189,11 @@ router.get("/superadmin/analytics", auth, superAdminOnly, async (req, res) => {
       totalAdmins,
       totalDeliveryPartners,
       totalRevenue,
-      recentOrders,   // for small table display
-      allOrders: safeAllOrders, // for charts & accurate analytics
+      recentOrders,   
+      allOrders: safeAllOrders, 
     });
   } catch (error) {
     console.error("Analytics Fetch Error:", error);
-    // include stack for debugging (remove in production)
     return res.status(500).json({ message: "Failed to load analytics data", error: error?.message, stack: error?.stack });
   }
 });

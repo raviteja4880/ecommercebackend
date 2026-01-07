@@ -1,165 +1,263 @@
 const express = require("express");
 const router = express.Router();
-const User = require("../models/User");
 const jwt = require("jsonwebtoken");
+const User = require("../models/User");
+const Otp = require("../models/Otp");
 const { auth } = require("../middleware/authMiddleware");
-const { sendWelcomeEmail } = require("../utils/sendEmail");
+const cloudinary = require("../utils/cloudinary");
 
-// ================= REGISTER =================
+const {
+  sendVerifyOtpEmail,
+  resendVerifyOtpEmail,
+  sendResetPasswordOtpEmail,
+  sendWelcomeEmail,
+} = require("../utils/email/sendEmail");
+
+/* ================= UTILS ================= */
+const generateOTP = () =>
+  Math.floor(100000 + Math.random() * 900000).toString();
+
+const generateToken = (id) =>
+  jwt.sign({ id }, process.env.JWT_SECRET, { expiresIn: "24d" });
+
+const OTP_EXPIRY = 2 * 60 * 1000; // 2 MINUTES
+
+/* =========================================================
+   REGISTER (OTP BASED)
+========================================================= */
 router.post("/register", async (req, res) => {
-  const { name, email, password, phone, role } = req.body;
+  const { name, email, password, phone } = req.body;
 
-  try {
-    // Check if user already exists
-    const existing = await User.findOne({ email });
-    if (existing)
-      return res.status(400).json({ message: "User already exists" });
-
-    // Restrict multiple superadmins
-    if (role === "superadmin") {
-      const superAdminCount = await User.countDocuments({ role: "superadmin" });
-      if (superAdminCount > 0) {
-        return res.status(403).json({
-          message: "A Super Admin already exists. Cannot create another one.",
-        });
-      }
-    }
-
-    const user = await User.create({
-      name,
-      email,
-      phone,
-      password,
-      role: role || "user",
-    });
-
-    // Generate token
-    const token = jwt.sign({ id: user._id }, process.env.JWT_SECRET, {
-      expiresIn: "24d",
-    });
-
-    // SEND WELCOME EMAIL
-    try {
-      await sendWelcomeEmail(user.email, user);
-    } catch (emailErr) {
-      console.error("Welcome Email Send Error:", emailErr.message);
-      // Do not stop registration if email fails
-    }
-
-    // Response
-    res.status(201).json({
-      _id: user._id,
-      name: user.name,
-      phone: user.phone,
-      email: user.email,
-      role: user.role,
-      token,
-    });
-  } catch (error) {
-    console.error("Register Error:", error.message);
-    res.status(500).json({ message: "Server error during registration" });
+  if (await User.findOne({ email })) {
+    return res.status(400).json({ message: "User already exists" });
   }
+
+  await Otp.deleteOne({ email, purpose: "register" });
+
+  const otp = generateOTP();
+
+  await Otp.create({
+    email,
+    otp,
+    purpose: "register",
+    expiresAt: Date.now() + OTP_EXPIRY,
+  });
+
+  await sendVerifyOtpEmail(email, { name, otp });
+
+  res.json({ message: "OTP sent (valid for 2 minutes)" });
 });
 
-// ================= LOGIN =================
+/* =========================================================
+   VERIFY OTP
+========================================================= */
+router.post("/verify-otp", async (req, res) => {
+  const { name, email, password, phone, otp } = req.body;
+
+  const record = await Otp.findOne({ email, purpose: "register" });
+
+  if (!record || record.otp !== otp || record.expiresAt < Date.now()) {
+    return res.status(400).json({ message: "Invalid or expired OTP" });
+  }
+
+  const user = await User.create({
+    name,
+    email,
+    password,
+    phone,
+    isEmailVerified: true,
+    status: "active",
+  });
+
+  await Otp.deleteOne({ email, purpose: "register" });
+
+  sendWelcomeEmail(email, { name }).catch(() => {});
+
+  res.json({
+    token: generateToken(user._id),
+    user,
+  });
+});
+
+/* =========================================================
+   RESEND OTP
+========================================================= */
+router.post("/resend-otp", async (req, res) => {
+  const { email, purpose } = req.body;
+
+  if (!email || !purpose) {
+    return res.status(400).json({
+      message: "Email and purpose are required",
+    });
+  }
+
+  const record = await Otp.findOne({ email, purpose });
+
+  if (!record) {
+    return res.status(404).json({
+      message:
+        "OTP expired or invalid purpose. Please start again.",
+    });
+  }
+
+  record.otp = generateOTP();
+  record.expiresAt = Date.now() + OTP_EXPIRY;
+  await record.save();
+
+  if (purpose === "register") {
+    await resendVerifyOtpEmail(email, { otp: record.otp });
+  } else if (purpose === "reset_password") {
+    await sendResetPasswordOtpEmail(email, { otp: record.otp });
+  }
+
+  res.json({ message: "OTP resent (valid for 2 minutes)" });
+});
+
+/* =========================================================
+   LOGIN
+========================================================= */
 router.post("/login", async (req, res) => {
   const { email, password } = req.body;
 
-  try {
-    const user = await User.findOne({ email });
-    if (!user || !(await user.matchPassword(password))) {
-      return res.status(401).json({ message: "Invalid credentials" });
-    }
-
-    const token = jwt.sign({ id: user._id }, process.env.JWT_SECRET, {
-      expiresIn: "24d",
-    });
-
-    res.json({
-      _id: user._id,
-      name: user.name,
-      email: user.email,
-      phone: user.phone,
-      role: user.role,
-      token,
-    });
-  } catch (error) {
-    console.error("Login Error:", error.message);
-    res.status(500).json({ message: "Server error during login" });
+  const user = await User.findOne({ email });
+  if (!user || !(await user.matchPassword(password))) {
+    return res.status(401).json({ message: "Invalid credentials" });
   }
+
+  if (!user.isEmailVerified) {
+    return res.status(403).json({ message: "Verify email first" });
+  }
+
+  res.json({
+    token: generateToken(user._id),
+    user,
+  });
 });
 
-// ================= PROFILE =================
+/* =========================================================
+   FORGOT PASSWORD
+========================================================= */
+router.post("/forgot-password", async (req, res) => {
+  const { email } = req.body;
+
+  const user = await User.findOne({ email });
+  if (!user) {
+    return res.status(404).json({ message: "User not found" });
+  }
+
+  await Otp.deleteOne({ email, purpose: "reset_password" });
+
+  const otp = generateOTP();
+
+  await Otp.create({
+    email,
+    otp,
+    purpose: "reset_password",
+    expiresAt: Date.now() + OTP_EXPIRY,
+  });
+
+  await sendResetPasswordOtpEmail(email, { name: user.name, otp });
+
+  res.json({ message: "OTP sent for password reset (2 min valid)" });
+});
+
+/* =========================================================
+   RESET PASSWORD
+========================================================= */
+router.post("/reset-password", async (req, res) => {
+  const { email, otp, newPassword } = req.body;
+
+  const record = await Otp.findOne({ email, purpose: "reset_password" });
+
+  if (!record || record.otp !== otp || record.expiresAt < Date.now()) {
+    return res.status(400).json({ message: "Invalid or expired OTP" });
+  }
+
+  const user = await User.findOne({ email });
+  user.password = newPassword;
+  await user.save();
+
+  await Otp.deleteOne({ email, purpose: "reset_password" });
+
+  res.json({ message: "Password reset successful" });
+});
+
+/* =========================================================
+   GET PROFILE
+========================================================= */
 router.get("/profile", auth, async (req, res) => {
-  try {
-    res.json(req.user);
-  } catch (error) {
-    console.error("Profile Error:", error.message);
-    res.status(500).json({ message: "Unable to fetch profile" });
-  }
+  const user = req.user;
+
+  res.json({
+    _id: user._id,
+    name: user.name,
+    email: user.email,
+    phone: user.phone,
+    avatar: user.avatar?.url || null,
+    role: user.role,
+  });
 });
 
-// ================= UPDATE PROFILE =================
+/* =========================================================
+   GET MINI PROFILE
+========================================================= */
+router.get("/me-mini", auth, async (req, res) => {
+  res.json({
+    name: req.user.name,
+    avatar: req.user.avatar?.url || null,
+  });
+});
+
+/* =========================================================
+   UPDATE PROFILE
+========================================================= */
 router.put("/profile", auth, async (req, res) => {
   try {
     const user = await User.findById(req.user._id);
+    if (!user) {
+      return res.status(404).json({ message: "User not found" });
+    }
 
-    if (!user) return res.status(404).json({ message: "User not found" });
-
-    const { name, phone, password } = req.body;
+    const { name, phone, password, avatarUrl, avatarPublicId } = req.body;
 
     if (name) user.name = name;
     if (phone) user.phone = phone;
     if (password) user.password = password;
 
-    const updatedUser = await user.save();
-
-    res.json({
-      _id: updatedUser._id,
-      name: updatedUser.name,
-      phone: updatedUser.phone,
-      email: updatedUser.email,
-      role: updatedUser.role,
-      token: jwt.sign({ id: updatedUser._id }, process.env.JWT_SECRET, {
-        expiresIn: "24d",
-      }),
-    });
-  } catch (error) {
-    console.error("Update Profile Error:", error.message);
-    res.status(500).json({ message: "Server error during update" });
-  }
-});
-
-// ================= ADMIN: UPDATE ANY USER =================
-router.put("/:id", auth, async (req, res) => {
-  try {
-    if (req.user.role !== "admin") {
-      return res.status(403).json({ message: "Access denied: Admins only" });
+    // ---------- AVATAR ----------
+    if (avatarUrl === null && avatarPublicId === null) {
+      if (user.avatar?.publicId) {
+        await cloudinary.uploader.destroy(user.avatar.publicId);
+      }
+      user.avatar = null;
     }
 
-    const user = await User.findById(req.params.id);
-    if (!user) return res.status(404).json({ message: "User not found" });
+    if (avatarUrl && avatarPublicId) {
+      if (user.avatar?.publicId) {
+        await cloudinary.uploader.destroy(user.avatar.publicId);
+      }
+      user.avatar = {
+        url: avatarUrl,
+        publicId: avatarPublicId,
+      };
+    }
 
-    const { name, phone, role } = req.body;
+    await user.save();
 
-    if (name) user.name = name;
-    if (phone) user.phone = phone;
-    if (role) user.role = role;
-
-    const updated = await user.save();
     res.json({
-      message: "User updated successfully",
+      message: "Profile updated successfully",
       user: {
-        _id: updated._id,
-        name: updated.name,
-        phone: updated.phone,
-        email: updated.email,
-        role: updated.role,
+        _id: user._id,
+        name: user.name,
+        email: user.email,
+        phone: user.phone,
+        avatar: user.avatar?.url || null,
+        role: user.role,
       },
     });
   } catch (error) {
-    console.error("Admin Update Error:", error.message);
-    res.status(500).json({ message: "Failed to update user" });
+    console.error("Profile update error:", error);
+    res.status(500).json({ message: "Profile update failed" });
   }
 });
 

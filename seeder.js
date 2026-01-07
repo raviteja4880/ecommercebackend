@@ -23,7 +23,7 @@ const importData = async () => {
     }));
 
     await Product.insertMany(products);
-    console.log("✅ Products imported from API!");
+    console.log("Products imported from API!");
     process.exit();
   } catch (error) {
     console.error("❌ Error importing:", error.message);

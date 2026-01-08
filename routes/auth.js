@@ -188,22 +188,38 @@ router.post("/resend-otp", async (req, res) => {
    LOGIN
 ========================================================= */
 router.post("/login", async (req, res) => {
-  const { email, password } = req.body;
+  try {
+    const { email, password } = req.body;
 
-  const user = await User.findOne({ email });
-  if (!user || !(await user.matchPassword(password))) {
-    return res.status(401).json({ message: "Invalid credentials" });
+    const user = await User.findOne({ email });
+    if (!user) {
+      return res.status(401).json({ message: "Invalid credentials" });
+    }
+
+    const isMatch = await user.matchPassword(password);
+    if (!isMatch) {
+      return res.status(401).json({ message: "Invalid credentials" });
+    }
+
+    if (user.status !== "active") {
+      return res.status(403).json({ message: "Account is blocked" });
+    }
+
+    res.status(200).json({
+      token: generateToken(user._id),
+      user: {
+        id: user._id,
+        name: user.name,
+        email: user.email,
+        role: user.role
+      }
+    });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ message: "Server error" });
   }
-
-  if (!user.isEmailVerified) {
-    return res.status(403).json({ message: "Verify email first" });
-  }
-
-  res.json({
-    token: generateToken(user._id),
-    user,
-  });
 });
+
 
 /* =========================================================
    FORGOT PASSWORD

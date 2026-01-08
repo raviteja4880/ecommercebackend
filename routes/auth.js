@@ -20,7 +20,7 @@ const generateOTP = () =>
 const generateToken = (id) =>
   jwt.sign({ id }, process.env.JWT_SECRET, { expiresIn: "24d" });
 
-const OTP_EXPIRY = 5 * 60 * 5000; // 5 MINUTES
+const OTP_EXPIRY = 5 * 60 * 1000; // 5 minutes
 
 /* =========================================================
    REGISTER (OTP BASED)
@@ -51,6 +51,7 @@ router.post("/register", async (req, res) => {
     if (existingOtp) {
       existingOtp.otp = otp;
       existingOtp.expiresAt = Date.now() + OTP_EXPIRY;
+      existingOtp.payload = { name, password, phone }; 
       await existingOtp.save();
     } else {
       await Otp.create({
@@ -58,6 +59,7 @@ router.post("/register", async (req, res) => {
         otp,
         purpose: "register",
         expiresAt: Date.now() + OTP_EXPIRY,
+        payload: { name, password, phone },
       });
     }
 
@@ -77,15 +79,15 @@ router.post("/register", async (req, res) => {
 ========================================================= */
 router.post("/verify-otp", async (req, res) => {
   try {
-    const { name, email, password, phone, otp } = req.body;
+    const { email, otp } = req.body;
 
-    if (!name || !email || !password || !otp) {
+    if (!email || !otp) {
       return res.status(400).json({
-        message: "Name, email, password and OTP are required",
-      }); 
+        message: "Email and OTP are required",
+      });
     }
 
-    const record = await Otp.findOne({ email, purpose: "register" });
+    const record = await Otp.findOne({ email });
 
     if (!record) {
       return res.status(400).json({
@@ -101,25 +103,46 @@ router.post("/verify-otp", async (req, res) => {
     }
 
     if (record.otp !== String(otp)) {
-      return res.status(400).json({ message: "Invalid OTP" });
+      return res.status(400).json({
+        message: "Invalid OTP",
+      });
     }
 
-    const user = await User.create({
-      name,
-      email,
-      password,
-      phone,
-      isEmailVerified: true,
-      status: "active",
-    });
+    if (record.purpose === "register") {
+      if (!record.payload) {
+        await Otp.deleteOne({ _id: record._id });
+        return res.status(400).json({
+          message: "Registration expired. Please register again.",
+        });
+      }
 
-    await Otp.deleteOne({ email, purpose: "register" });
+      const { name, password, phone } = record.payload;
 
-    sendWelcomeEmail(email, { name }).catch(() => {});
+      const user = await User.create({
+        name,
+        email,
+        password,
+        phone,
+        isEmailVerified: true,
+        status: "active",
+      });
 
-    res.json({
-      token: generateToken(user._id),
-      user,
+      await Otp.deleteOne({ _id: record._id });
+
+      return res.json({
+        token: generateToken(user._id),
+        user,
+      });
+    }
+
+    if (record.purpose === "reset_password") {
+      return res.json({
+        message: "OTP verified for password reset",
+      });
+    }
+
+    return res.status(400).json({
+      message: "Invalid OTP purpose",
     });
   } catch (err) {
     console.error("VERIFY OTP ERROR:", err);
@@ -248,6 +271,7 @@ router.post("/reset-password", async (req, res) => {
     }
 
     if (record.expiresAt < Date.now()) {
+      await Otp.deleteOne({ _id: record._id });
       return res.status(400).json({ message: "OTP expired" });
     }
 
@@ -261,9 +285,9 @@ router.post("/reset-password", async (req, res) => {
     }
 
     user.password = newPassword;
-    await user.save(); 
+    await user.save();
 
-    await Otp.deleteOne({ email, purpose: "reset_password" });
+    await Otp.deleteMany({ email, purpose: "reset_password" });
 
     res.json({ message: "Password reset successful" });
   } catch (err) {
@@ -308,11 +332,27 @@ router.put("/profile", auth, async (req, res) => {
       return res.status(404).json({ message: "User not found" });
     }
 
-    const { name, phone, password, avatarUrl, avatarPublicId } = req.body;
+  const {name, phone, password, currentPassword, avatarUrl, avatarPublicId } = req.body;
 
-    if (name) user.name = name;
-    if (phone) user.phone = phone;
-    if (password) user.password = password;
+  if (name) user.name = name;
+  if (phone) user.phone = phone;
+
+  if (password) {
+    if (!currentPassword) {
+      return res.status(400).json({
+        message: "Current password is required",
+      });
+    }
+
+    const isMatch = await user.matchPassword(currentPassword);
+    if (!isMatch) {
+      return res.status(400).json({
+        message: "Current password is incorrect",
+      });
+    }
+
+    user.password = password;
+  }
 
     // ---------- AVATAR ----------
     if (avatarUrl === null && avatarPublicId === null) {

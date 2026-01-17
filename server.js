@@ -15,6 +15,7 @@ const paymentRoutes = require("./routes/payment");
 const adminRoutes = require("./admin-delivary/routes/adminRoutes");
 const deliveryRoutes = require("./admin-delivary/routes/deliveryRoutes");
 const uploadRoutes = require("./routes/upload");
+const recommendationRoutes = require("./routes/recommendation");
 
 // ----------------- Database Connection -----------------
 const connectDB = async () => {
@@ -68,6 +69,7 @@ app.use("/api/payment", paymentRoutes);
 app.use("/api/admin", adminRoutes);
 app.use("/api/delivery", deliveryRoutes);
 app.use("/api/upload", uploadRoutes);
+app.use("/api/recommendations", recommendationRoutes);
 
 // ----------------- Start Server -----------------
 const PORT = process.env.PORT || 5000;

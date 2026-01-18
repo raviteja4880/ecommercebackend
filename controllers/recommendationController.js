@@ -4,24 +4,17 @@ const {
   getCartRecommendations
 } = require("../services/mlService");
 
-// PRODUCT PAGE RECOMMENDATIONS
+// ================= PRODUCT PAGE RECOMMENDATIONS =================
 const productRecommendations = async (req, res) => {
   try {
     const { externalId } = req.params;
-
     if (!externalId) return res.json([]);
 
-    // Call ML service
     const mlResults = await getProductRecommendations(externalId);
+    if (!Array.isArray(mlResults) || !mlResults.length) return res.json([]);
 
-    if (!Array.isArray(mlResults) || mlResults.length === 0) {
-      return res.json([]);
-    }
-
-    // Preserve ML ranking order
     const productIds = mlResults.map(p => p.externalId);
 
-    // Fetch products from Mongo
     const products = await Product.find(
       { externalId: { $in: productIds } },
       { __v: 0 }
@@ -29,60 +22,46 @@ const productRecommendations = async (req, res) => {
 
     if (!products.length) return res.json([]);
 
-    //  Reorder products based on ML score order
-    const productMap = new Map(
-      products.map(p => [p.externalId, p])
-    );
+    const map = new Map(products.map(p => [p.externalId, p]));
+    const ordered = productIds.map(id => map.get(id)).filter(Boolean);
 
-    const orderedProducts = productIds
-      .map(id => productMap.get(id))
-      .filter(Boolean);
-
-    return res.json(orderedProducts);
-
+    return res.json(ordered);
   } catch (err) {
     console.error("Product recommendation error:", err.message);
     return res.status(500).json([]);
   }
 };
 
-
-// CART PAGE RECOMMENDATIONS
+// ================= CART PAGE RECOMMENDATIONS =================
 const cartRecommendations = async (req, res) => {
   try {
     const { cartItems } = req.body;
+    if (!Array.isArray(cartItems) || !cartItems.length) return res.json([]);
 
-    if (!Array.isArray(cartItems) || cartItems.length === 0) {
-      return res.json([]);
-    }
+    // ----------  TRY ML FIRST ----------
+    try {
+      const mlResults = await getCartRecommendations(cartItems);
 
-    // Try ML recommendations first
-    const mlResults = await getCartRecommendations(cartItems);
+      if (Array.isArray(mlResults) && mlResults.length) {
+        const productIds = mlResults.map(p => p.externalId);
 
-    if (Array.isArray(mlResults) && mlResults.length > 0) {
-      const productIds = mlResults.map(p => p.externalId);
+        const products = await Product.find(
+          { externalId: { $in: productIds } },
+          { __v: 0 }
+        ).lean();
 
-      const products = await Product.find(
-        { externalId: { $in: productIds } },
-        { __v: 0 }
-      ).lean();
+        if (products.length) {
+          const map = new Map(products.map(p => [p.externalId, p]));
+          const ordered = productIds.map(id => map.get(id)).filter(Boolean);
 
-      if (products.length) {
-        const productMap = new Map(
-          products.map(p => [p.externalId, p])
-        );
-
-        const orderedProducts = productIds
-          .map(id => productMap.get(id))
-          .filter(Boolean);
-
-        if (orderedProducts.length) {
-          return res.json(orderedProducts);
+          if (ordered.length) return res.json(ordered);
         }
       }
+    } catch (mlErr) {
+      console.warn("⚠️ ML cart recommendation failed:", mlErr.message);
     }
 
-    // Fetch cart products
+    // ----------  FALLBACK (MULTI-CATEGORY) ----------
     const cartProducts = await Product.find(
       { externalId: { $in: cartItems } },
       { category: 1 }
@@ -90,19 +69,28 @@ const cartRecommendations = async (req, res) => {
 
     if (!cartProducts.length) return res.json([]);
 
-    // Dominant category
-    const dominantCategory = cartProducts[0].category;
+    // Count category frequency
+    const categoryCount = {};
+    cartProducts.forEach(p => {
+      categoryCount[p.category] =
+        (categoryCount[p.category] || 0) + 1;
+    });
 
-    // Category-based fallback
+    // Sort categories by importance
+    const sortedCategories = Object.entries(categoryCount)
+      .sort((a, b) => b[1] - a[1])
+      .map(([cat]) => cat);
+
+    // Fetch diverse fallback products
     const fallbackProducts = await Product.find(
       {
-        category: dominantCategory,
+        category: { $in: sortedCategories },
         externalId: { $nin: cartItems }
       },
       { __v: 0 }
     )
       .sort({ createdAt: -1 })
-      .limit(4)
+      .limit(8)
       .lean();
 
     return res.json(fallbackProducts);
@@ -113,7 +101,4 @@ const cartRecommendations = async (req, res) => {
   }
 };
 
-module.exports = {
-  productRecommendations,
-  cartRecommendations
-};
+module.exports = { productRecommendations,cartRecommendations };

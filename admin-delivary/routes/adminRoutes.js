@@ -4,6 +4,7 @@ const Order = require("../../models/Order");
 const User = require("../../models/User");
 const Product = require("../../models/Product");
 const multer = require("multer");
+const axios = require("axios");
 const cloudinary = require("../../utils/cloudinary"); 
 const {auth, adminOnly, superAdminOnly } = require("../../middleware/authMiddleware");
 
@@ -195,6 +196,28 @@ router.get("/superadmin/analytics", auth, superAdminOnly, async (req, res) => {
   } catch (error) {
     console.error("Analytics Fetch Error:", error);
     return res.status(500).json({ message: "Failed to load analytics data", error: error?.message, stack: error?.stack });
+  }
+});
+
+// ================== TRIGGER ML RETRAINING (Admin only) ==================
+router.post("/ml/retrain", auth, adminOnly, async (req, res) => {
+  try {
+    const token = req.headers.authorization; 
+
+    await axios.post(
+      process.env.ML_RETRAIN_URL,
+      {},
+      {
+        headers: {
+          Authorization: token
+        }
+      }
+    );
+
+    res.json({ message: "ML retraining started successfully" });
+  } catch (err) {
+    console.error("ML retrain error:", err.response?.data || err.message);
+    res.status(500).json({ message: "Failed to start retraining" });
   }
 });
 

@@ -12,7 +12,8 @@ export const getProductRecommendations = async (externalId) => {
 export const getCartRecommendations = async (cartExternalIds) => {
   const { data } = await axios.post(
     `${ML_BASE_URL}/recommend/cart`,
-    cartExternalIds
+    { cartItems: cartExternalIds }
   );
   return data.recommendations;
 };
+

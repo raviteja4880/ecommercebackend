@@ -1,8 +1,5 @@
 const Product = require("../models/Product");
-const {
-  getProductRecommendations,
-  getCartRecommendations
-} = require("../services/mlService");
+const { getProductRecommendations, getCartRecommendations } = require("../services/mlService");
 
 // ================= PRODUCT PAGE RECOMMENDATIONS =================
 const productRecommendations = async (req, res) => {
@@ -13,7 +10,9 @@ const productRecommendations = async (req, res) => {
     const mlResults = await getProductRecommendations(externalId);
     if (!Array.isArray(mlResults) || !mlResults.length) return res.json([]);
 
-    const productIds = mlResults.map(p => p.externalId);
+    const productIds = mlResults
+      .map(p => p.externalId)
+      .filter(id => typeof id === "string" && id.length);
 
     const products = await Product.find(
       { externalId: { $in: productIds } },

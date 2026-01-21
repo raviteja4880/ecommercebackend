@@ -2,6 +2,14 @@ import axios from "axios";
 
 const ML_BASE_URL = process.env.ML_SERVICE_URL;
 
+export const getHomeRecommendations = async (seed, limit = 4) => {
+  const { data } = await axios.get(
+    `${ML_BASE_URL}/recommend/home`,
+    { params: { seed, limit } }
+  );
+  return data.recommendations;
+};
+
 export const getProductRecommendations = async (externalId) => {
   const { data } = await axios.get(
     `${ML_BASE_URL}/recommend/product/${externalId}`

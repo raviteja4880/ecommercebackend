@@ -1,33 +1,38 @@
-const Product = require("../models/Product");
-const {
+import Product from "../models/Product.js";
+import {
   getProductRecommendations,
-  getCartRecommendations
-} = require("../services/mlService");
+  getCartRecommendations,
+  getHomeRecommendations
+} from "../services/mlService.js";
 
-// ================= PRODUCT PAGE RECOMMENDATIONS =================
-const productRecommendations = async (req, res) => {
+const safeArray = (val) => (Array.isArray(val) ? val : []);
+
+const normalizeExternalIds = (items) =>
+  items
+    .map(p => (typeof p === "string" ? p : p?.externalId))
+    .filter(Boolean);
+
+/* ============================================================
+   HOME PAGE RECOMMENDATIONS
+============================================================ */
+
+const homeRecommendations = async (req, res) => {
+  const userKey = req.query.userKey || "guest";
+  const today = new Date().toISOString().slice(0, 10);
+  const seed = `${userKey}-${today}`;
+
   try {
-    const { externalId } = req.params;
-    if (!externalId) return res.json([]);
-
     let mlResults = [];
 
     try {
-      mlResults = await getProductRecommendations(externalId);
-    } catch (mlErr) {
-      console.warn("⚠️ ML product recommendation failed:", mlErr.message);
-      return res.json([]);
+      mlResults = safeArray(await getHomeRecommendations(seed, 4));
+    } catch (err) {
+      console.warn("[HOME-ML] Failed:", err.message);
     }
 
-    if (!Array.isArray(mlResults) || !mlResults.length) {
-      return res.json([]);
-    }
+    if (!mlResults.length) return res.json([]);
 
-    // ✅ Normalize ML output (STRING or OBJECT)
-    const productIds = mlResults
-      .map(p => (typeof p === "string" ? p : p.externalId))
-      .filter(id => typeof id === "string" && id.length);
-
+    const productIds = normalizeExternalIds(mlResults);
     if (!productIds.length) return res.json([]);
 
     const products = await Product.find(
@@ -37,50 +42,86 @@ const productRecommendations = async (req, res) => {
 
     if (!products.length) return res.json([]);
 
-    // Preserve ML ranking
-    const map = new Map(products.map(p => [p.externalId, p]));
-    const ordered = productIds.map(id => map.get(id)).filter(Boolean);
+    const productMap = new Map(products.map(p => [p.externalId, p]));
+    const ordered = productIds.map(id => productMap.get(id)).filter(Boolean);
 
     return res.json(ordered);
   } catch (err) {
-    console.error("❌ Product recommendation error:", err);
-    return res.json([]); // ❗ never 500
+    console.error("[HOME] Error:", err);
+    return res.json([]);
   }
 };
 
-// ================= CART PAGE RECOMMENDATIONS =================
-const cartRecommendations = async (req, res) => {
+/* ============================================================
+   PRODUCT PAGE RECOMMENDATIONS
+============================================================ */
+
+const productRecommendations = async (req, res) => {
+  const { externalId } = req.params;
+  if (!externalId) return res.json([]);
+
   try {
-    const { cartItems } = req.body;
-    if (!Array.isArray(cartItems) || !cartItems.length) return res.json([]);
+    let mlResults = [];
 
-    // ---------- TRY ML FIRST ----------
     try {
-      const mlResults = await getCartRecommendations(cartItems);
-
-      if (Array.isArray(mlResults) && mlResults.length) {
-        const productIds = mlResults
-          .map(p => (typeof p === "string" ? p : p.externalId))
-          .filter(Boolean);
-
-        if (productIds.length) {
-          const products = await Product.find(
-            { externalId: { $in: productIds } },
-            { __v: 0 }
-          ).lean();
-
-          if (products.length) {
-            const map = new Map(products.map(p => [p.externalId, p]));
-            const ordered = productIds.map(id => map.get(id)).filter(Boolean);
-            if (ordered.length) return res.json(ordered);
-          }
-        }
-      }
-    } catch (mlErr) {
-      console.warn("⚠️ ML cart recommendation failed:", mlErr.message);
+      mlResults = safeArray(await getProductRecommendations(externalId));
+    } catch (err) {
+      console.warn("[PRODUCT-ML] Failed:", err.message);
     }
 
-    // ---------- FALLBACK (MULTI-CATEGORY) ----------
+    if (!mlResults.length) return res.json([]);
+
+    const productIds = normalizeExternalIds(mlResults);
+    if (!productIds.length) return res.json([]);
+
+    const products = await Product.find(
+      { externalId: { $in: productIds } },
+      { __v: 0 }
+    ).lean();
+
+    if (!products.length) return res.json([]);
+
+    const productMap = new Map(products.map(p => [p.externalId, p]));
+    const ordered = productIds.map(id => productMap.get(id)).filter(Boolean);
+
+    return res.json(ordered);
+  } catch (err) {
+    console.error("[PRODUCT] Error:", err);
+    return res.json([]);
+  }
+};
+
+/* ============================================================
+   CART PAGE RECOMMENDATIONS
+============================================================ */
+
+const cartRecommendations = async (req, res) => {
+  const cartItems = safeArray(req.body?.cartItems);
+  if (!cartItems.length) return res.json([]);
+
+  try {
+    /* ---------- TRY ML FIRST ---------- */
+    try {
+      const mlResults = safeArray(await getCartRecommendations(cartItems));
+      const productIds = normalizeExternalIds(mlResults);
+
+      if (productIds.length) {
+        const products = await Product.find(
+          { externalId: { $in: productIds } },
+          { __v: 0 }
+        ).lean();
+
+        if (products.length) {
+          const productMap = new Map(products.map(p => [p.externalId, p]));
+          const ordered = productIds.map(id => productMap.get(id)).filter(Boolean);
+          if (ordered.length) return res.json(ordered);
+        }
+      }
+    } catch (err) {
+      console.warn("[CART-ML] Failed:", err.message);
+    }
+
+    /* ---------- FALLBACK ---------- */
     const cartProducts = await Product.find(
       { externalId: { $in: cartItems } },
       { category: 1 }
@@ -88,14 +129,14 @@ const cartRecommendations = async (req, res) => {
 
     if (!cartProducts.length) return res.json([]);
 
-    const categoryCount = {};
-    cartProducts.forEach(p => {
-      categoryCount[p.category] = (categoryCount[p.category] || 0) + 1;
-    });
+    const categoryCount = cartProducts.reduce((acc, p) => {
+      acc[p.category] = (acc[p.category] || 0) + 1;
+      return acc;
+    }, {});
 
-    const sortedCategories = Object.entries(categoryCount)
-      .sort((a, b) => b[1] - a[1])
-      .map(([cat]) => cat);
+    const sortedCategories = Object.keys(categoryCount).sort(
+      (a, b) => categoryCount[b] - categoryCount[a]
+    );
 
     const fallbackProducts = await Product.find(
       {
@@ -110,9 +151,9 @@ const cartRecommendations = async (req, res) => {
 
     return res.json(fallbackProducts);
   } catch (err) {
-    console.error("❌ Cart recommendation error:", err);
-    return res.json([]); // ❗ never 500
+    console.error("[CART] Error:", err);
+    return res.json([]);
   }
 };
 
-module.exports = { productRecommendations, cartRecommendations };
+export { productRecommendations, cartRecommendations, homeRecommendations };

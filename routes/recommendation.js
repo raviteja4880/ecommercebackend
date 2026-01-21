@@ -1,11 +1,13 @@
 const express = require("express");
 const {
   productRecommendations,
-  cartRecommendations
+  cartRecommendations,
+  homeRecommendations
 } = require("../controllers/recommendationController");
 
 const router = express.Router();
 
+router.get("/home", homeRecommendations);
 router.get("/product/:externalId", productRecommendations);
 router.post("/cart", cartRecommendations);
 

@@ -8,6 +8,7 @@ const {
   resendVerifyOtpTemplate,
   resetPasswordOtpTemplate,
   welcomeTemplate,
+  deliveryWelcomeTemplate,
 } = require("./emailTemplates");
 
 
@@ -18,7 +19,7 @@ const transEmailApi = new Sib.TransactionalEmailsApi();
 
 const SENDER = {
   email: process.env.FROM_EMAIL || "onboarding@brevo.com",
-  name: "MyStore",
+  name: "MyStorX",
 };
 
 exports.sendWelcomeEmail = async (to, data) => {
@@ -86,7 +87,7 @@ exports.sendVerifyOtpEmail = async (to, data) => {
 
   await sendEmail({
     to,
-    subject: "Verify your email • MyStore",
+    subject: "Verify your email • MyStorX",
     html: verifyOtpTemplate(data),
   });
 };
@@ -96,8 +97,18 @@ exports.resendVerifyOtpEmail = async (to, data) => {
 
   await sendEmail({
     to,
-    subject: "Resend: Verify your email • MyStore",
+    subject: "Resend: Verify your email • MyStorX",
     html: resendVerifyOtpTemplate(data),
+  });
+};
+
+exports.sendDeliveryWelcomeEmail = async (email, data) => {
+  const html = deliveryWelcomeTemplate(data);
+
+  await sendEmail({
+    to: email,
+    subject: "Welcome to MyStorX Delivery Team",
+    html,
   });
 };
 
@@ -106,7 +117,7 @@ exports.sendResetPasswordOtpEmail = async (to, data) => {
 
   await sendEmail({
     to,
-    subject: "Reset password OTP • MyStore",
+    subject: "Reset password OTP • MyStorX",
     html: resetPasswordOtpTemplate(data),
   });
 };

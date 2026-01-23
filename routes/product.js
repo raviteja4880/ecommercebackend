@@ -24,9 +24,6 @@ router.get("/:id", async (req, res) => {
       product = await Product.findById(id);
     }
 
-    // Optional fallback if needed
-    // if (!product) product = await Product.findOne({ externalId: id });
-
     if (!product) {
       return res.status(404).json({ message: "Product not found" });
     }

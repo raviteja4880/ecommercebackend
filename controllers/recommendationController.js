@@ -15,11 +15,14 @@ const normalizeExternalIds = (items) =>
 /* ============================================================
    HOME PAGE RECOMMENDATIONS
 ============================================================ */
-
 const homeRecommendations = async (req, res) => {
   const userKey = req.query.userKey || "guest";
-  const today = new Date().toISOString().slice(0, 10);
-  const seed = `${userKey}-${today}`;
+
+  const now = new Date();
+  const hoursBlock = Math.floor(now.getHours() / 6); // Refresh every 6 hours
+  const dateKey = now.toISOString().slice(0, 10);
+
+  const seed = `${userKey}-${dateKey}-${hoursBlock}`;
 
   try {
     let mlResults = [];
@@ -55,7 +58,6 @@ const homeRecommendations = async (req, res) => {
 /* ============================================================
    PRODUCT PAGE RECOMMENDATIONS
 ============================================================ */
-
 const productRecommendations = async (req, res) => {
   const { externalId } = req.params;
   if (!externalId) return res.json([]);
@@ -94,7 +96,6 @@ const productRecommendations = async (req, res) => {
 /* ============================================================
    CART PAGE RECOMMENDATIONS
 ============================================================ */
-
 const cartRecommendations = async (req, res) => {
   const cartItems = safeArray(req.body?.cartItems);
   if (!cartItems.length) return res.json([]);

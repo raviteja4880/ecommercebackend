@@ -23,7 +23,7 @@ const generateToken = (id) =>
 const OTP_EXPIRY = 5 * 60 * 1000; // 5 minutes
 
 /* =========================================================
-   REGISTER (OTP BASED)
+   REGISTER
 ========================================================= */
 router.post("/register", async (req, res) => {
   try {
@@ -126,6 +126,8 @@ router.post("/verify-otp", async (req, res) => {
         isEmailVerified: true,
         status: "active",
       });
+
+      await sendWelcomeEmail(email, { name });
 
       await Otp.deleteOne({ _id: record._id });
 

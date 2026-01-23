@@ -66,7 +66,7 @@ ${otpBox(otp)}
   return wrapWithTheme(body);
 };
 
-exports.resendVerifyOtpTemplet = ({ name, otp }) => {
+exports.resendVerifyOtpTemplate = ({ name, otp }) => {
   const body = `
 <tr>
   <td align="center">

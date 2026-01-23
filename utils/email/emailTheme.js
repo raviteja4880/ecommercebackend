@@ -17,7 +17,7 @@ const LOGO_HEADER = `
 <tr>
   <td align="center" style="padding-bottom:10px;">
     <img src="https://exclusive-jade-kaaf6575xb.edgeone.app/favicon.png" width="70" />
-    <h2 style="margin:8px 0 0;font-size:24px;color:#0d6efd;">MyStore</h2>
+    <h2 style="margin:8px 0 0;font-size:24px;color:#0d6efd;">MyStorX</h2>
   </td>
 </tr>
 `;
@@ -25,7 +25,7 @@ const LOGO_HEADER = `
 const FOOTER = `
 <tr>
   <td style="padding:15px 0;text-align:center;font-size:12px;color:#999;">
-    © ${new Date().getFullYear()} MyStore. All rights reserved.
+    © ${new Date().getFullYear()} MyStorX. All rights reserved.
   </td>
 </tr>
 `;

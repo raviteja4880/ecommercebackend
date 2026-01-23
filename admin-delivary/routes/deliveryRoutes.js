@@ -2,7 +2,197 @@ const express = require("express");
 const router = express.Router();
 const Order = require("../../models/Order");
 const { auth, deliveryOnly } = require("../../middleware/authMiddleware");
-const { sendDeliveryEmail } = require("../../utils/email/sendEmail");
+const { sendDeliveryEmail, sendVerifyOtpEmail, resendVerifyOtpEmail } = require("../../utils/email/sendEmail");
+const User = require("../../models/User");
+const Otp = require("../../models/Otp");
+const jwt = require("jsonwebtoken");
+
+// ================== UTILITY FUNCTIONS ==================
+const generateOTP = () =>
+  Math.floor(100000 + Math.random() * 900000).toString();
+
+const generateToken = (id) =>
+  jwt.sign({ id }, process.env.JWT_SECRET, { expiresIn: "24d" });
+
+const OTP_EXPIRY = 5 * 60 * 1000; // 5 minutes
+
+// delivery registration
+router.post("/register-delivery", async (req, res) => {
+  try {
+    const { name, email, password, phone } = req.body;
+
+    if (!name || !email || !password) {
+      return res.status(400).json({ message: "All fields required" });
+    }
+
+    const existingUser = await User.findOne({ email });
+
+    if (existingUser) {
+      // If already delivery/admin/superadmin → block
+      if (["delivery", "admin", "superadmin"].includes(existingUser.role)) {
+        return res.status(400).json({
+          message: "This email is already registered for a privileged role",
+        });
+      }
+    }
+
+    const otp = generateOTP();
+
+    const existingOtp = await Otp.findOne({
+      email,
+      purpose: "delivery_register",
+    });
+
+    if (existingOtp) {
+      existingOtp.otp = otp;
+      existingOtp.expiresAt = Date.now() + OTP_EXPIRY;
+      existingOtp.payload = { name, password, phone };
+      await existingOtp.save();
+    } else {
+      await Otp.create({
+        email,
+        otp,
+        purpose: "delivery_register",
+        expiresAt: Date.now() + OTP_EXPIRY,
+        payload: { name, password, phone },
+      });
+    }
+
+    await sendVerifyOtpEmail(email, { name, otp });
+
+    res.json({
+      message: "OTP sent for delivery registration",
+    });
+  } catch (err) {
+    console.error("DELIVERY REGISTER ERROR:", err);
+    res.status(500).json({ message: "Delivery registration failed" });
+  }
+});
+
+// ================== VERIFY DELIVERY OTP & COMPLETE REGISTRATION ==================
+router.post("/verify-delivery-otp", async (req, res) => {
+  try {
+    const { email, otp } = req.body;
+
+    if (!email || !otp) {
+      return res.status(400).json({
+        message: "Email and OTP are required",
+      });
+    }
+
+    const record = await Otp.findOne({
+      email,
+      purpose: "delivery_register",
+    });
+
+    if (!record) {
+      return res.status(400).json({
+        message: "OTP not found. Please register again.",
+      });
+    }
+
+    if (record.expiresAt < Date.now()) {
+      await Otp.deleteOne({ _id: record._id });
+      return res.status(400).json({
+        message: "OTP expired. Please request a new one.",
+      });
+    }
+
+    if (record.otp !== String(otp)) {
+      return res.status(400).json({
+        message: "Invalid OTP",
+      });
+    }
+
+    if (!record.payload) {
+      await Otp.deleteOne({ _id: record._id });
+      return res.status(400).json({
+        message: "Registration expired. Please register again.",
+      });
+    }
+
+    const { name, password, phone } = record.payload;
+
+    let user = await User.findOne({ email });
+
+    if (user) {
+      // Upgrade existing user to delivery
+      user.role = "delivery";
+      user.phone = phone || user.phone;
+      user.isEmailVerified = true;
+      user.status = "active";
+
+      if (password) {
+        user.password = password;
+      }
+
+      await user.save();
+    } else {
+      // Create new delivery user
+      user = await User.create({
+        name,
+        email,
+        password,
+        phone,
+        role: "delivery",
+        isEmailVerified: true,
+        status: "active",
+      });
+    }
+
+    await Otp.deleteOne({ _id: record._id });
+
+    return res.json({
+      token: generateToken(user._id),
+      user,
+    });
+
+  } catch (err) {
+    console.error("VERIFY DELIVERY OTP ERROR:", err);
+    res.status(500).json({ message: "Server error" });
+  }
+});
+
+// ================== RESEND DELIVERY OTP ==================
+router.post("/resend-delivery-otp", async (req, res) => {
+  try {
+    const { email } = req.body;
+
+    if (!email) {
+      return res.status(400).json({ message: "Email is required" });
+    }
+
+    const record = await Otp.findOne({
+      email,
+      purpose: "delivery_register",
+    });
+
+    if (!record) {
+      return res.status(404).json({
+        message: "OTP expired. Please register again.",
+      });
+    }
+
+    record.otp = generateOTP();
+    record.expiresAt = Date.now() + OTP_EXPIRY;
+    await record.save();
+
+    try {
+      await resendVerifyOtpEmail(email, {
+        name: "Delivery Partner",
+        otp: record.otp,
+      });
+    } catch (mailErr) {
+      console.error("DELIVERY RESEND EMAIL FAILED:", mailErr.message);
+    }
+
+    return res.json({ message: "Delivery OTP resent" });
+
+  } catch (err) {
+    console.error("RESEND DELIVERY OTP ERROR:", err);
+    return res.status(500).json({ message: "Failed to resend OTP" });
+  }
+});
 
 // ================== GET ASSIGNED ORDERS ==================
 router.get("/my-orders", auth, deliveryOnly, async (req, res) => {

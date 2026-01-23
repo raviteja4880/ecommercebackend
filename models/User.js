@@ -30,7 +30,7 @@ const userSchema = new mongoose.Schema(
 
     status: {
       type: String,
-      enum: ["active", "inactive"],
+      enum: ["active", "inactive", "blocked"],
       default: "inactive",
     },
 
@@ -42,7 +42,7 @@ const userSchema = new mongoose.Schema(
   { timestamps: true }
 );
 
-/* PASSWORD HASH */
+// PASSWORD HASH
 userSchema.pre("save", async function () {
   if (!this.isModified("password")) return;
   this.password = await bcrypt.hash(this.password, 10);

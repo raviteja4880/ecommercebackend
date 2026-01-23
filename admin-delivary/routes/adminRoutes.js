@@ -56,13 +56,24 @@ router.put("/orders/:id/status", auth, adminOnly, async (req, res) => {
   }
 });
 
-// ================== ADD PRODUCTS (Admin only) ==================
+// ================== GET ALL PRODUCTS (Admin only) ==================
+router.get("/products", auth, adminOnly, async (req, res) => {
+  try {
+    const products = await Product.find().sort({ createdAt: -1 });
+    res.json(products);
+  } catch (error) {
+    console.error("Fetch Products Error:", error.message);
+    res.status(500).json({ message: "Failed to fetch products" });
+  }
+});
+
+// ================== ADD NEW PRODUCT (Admin) ==================
 router.post("/products", auth, adminOnly, upload.single("image"), async (req, res) => {
   try {
     console.log("Incoming request body:", req.body);
     console.log("Received file:", req.file);
 
-    const { externalId, name, brand, category, description, price } = req.body;
+    const { externalId, name, brand, category, description, price, countInStock } = req.body;
 
     if (!externalId || !name || !price || !category) {
       return res.status(400).json({ message: "Please provide all required fields" });
@@ -76,8 +87,6 @@ router.post("/products", auth, adminOnly, upload.single("image"), async (req, re
       });
       imageUrl = uploadRes.secure_url;
       console.log("Cloudinary Upload Complete:", imageUrl);
-    } else {
-      console.log("No image file received");
     }
 
     const newProduct = await Product.create({
@@ -88,17 +97,59 @@ router.post("/products", auth, adminOnly, upload.single("image"), async (req, re
       category,
       description,
       price,
+      countInStock: countInStock,
     });
 
     console.log("Product created successfully:", newProduct);
+
     res.status(201).json({
       success: true,
       message: "Product added successfully",
       product: newProduct,
     });
+
   } catch (error) {
-    console.error("Add Product Error (Full Stack):", error);
+    console.error("Add Product Error:", error);
     res.status(500).json({ message: "Failed to add product", error: error.message });
+  }
+});
+
+// UPDATE PRODUCT (Admin)
+router.put("/products/:id", auth, adminOnly, upload.single("image"), async (req, res) => {
+  try {
+    const { id } = req.params;
+
+    const updatedFields = {
+      name: req.body.name,
+      price: req.body.price,
+      category: req.body.category,
+      brand: req.body.brand,
+      description: req.body.description,
+      countInStock: req.body.countInStock,
+    };
+
+    if (req.file) {
+      const uploadRes = await cloudinary.uploader.upload(req.file.path, {
+        folder: "ecommerce_products",
+      });
+      updatedFields.image = uploadRes.secure_url;
+    }
+
+    const updated = await Product.findByIdAndUpdate(id, updatedFields, { new: true });
+
+    res.json({ message: "Inventory updated successfully", product: updated });
+  } catch (err) {
+    res.status(500).json({ message: "Update failed" });
+  }
+});
+
+// DELETE PRODUCT (Admin)
+router.delete("/products/:id", auth, adminOnly, async (req, res) => {
+  try {
+    await Product.findByIdAndDelete(req.params.id);
+    res.json({ message: "Product deleted successfully" });
+  } catch {
+    res.status(500).json({ message: "Delete failed" });
   }
 });
 

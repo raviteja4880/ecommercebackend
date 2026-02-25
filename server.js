@@ -38,7 +38,7 @@ app.use(express.json());
 const allowedOrigins = [
   "http://localhost:3000",
   "http://localhost:3001",
-  "https://tejacommerce.netlify.app",
+  "https://mystorx.netlify.app",
   "https://admin-delivary.netlify.app",
 ];
 

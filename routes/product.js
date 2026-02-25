@@ -1,49 +1,18 @@
 const express = require("express");
-const mongoose = require("mongoose");
 const router = express.Router();
-const Product = require("../models/Product");
-const { syncProducts } = require("../services/syncService");
+const productController = require("../controllers/productController");
 
-// GET all products
-router.get("/", async (req, res) => {
-  try {
-    const products = await Product.find();
-    res.json(products);
-  } catch (error) {
-    res.status(500).json({ message: error.message });
-  }
-});
+/* =========================================================
+   PRODUCT ROUTES
+========================================================= */
 
-router.get("/:id", async (req, res) => {
-  try {
-    const { id } = req.params;
+// GET /api/products - Get all products
+router.get("/", productController.getAllProducts);
 
-    let product = null;
+// GET /api/products/:id - Get product by ID
+router.get("/:id", productController.getProductById);
 
-    if (mongoose.Types.ObjectId.isValid(id)) {
-      product = await Product.findById(id);
-    }
-
-    if (!product) {
-      return res.status(404).json({ message: "Product not found" });
-    }
-
-    res.json(product);
-  } catch (err) {
-    console.error("Error fetching product:", err);
-    res.status(500).json({ message: "Server error" });
-  }
-});
-
-
-// POST /api/products/sync
-router.post("/sync", async (req, res) => {
-  try {
-    await syncProducts();
-    res.json({ message: " Products synced successfully" });
-  } catch (error) {
-    res.status(500).json({ message: error.message });
-  }
-});
+// POST /api/products/sync - Sync products from external source
+router.post("/sync", productController.syncProducts);
 
 module.exports = router;

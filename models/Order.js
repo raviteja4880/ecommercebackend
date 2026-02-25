@@ -25,9 +25,9 @@ const orderSchema = new mongoose.Schema(
     // PAYMENT
     paymentMethod: {
       type: String,
-      enum: ["COD", "qr", "card"],
+      enum: ["cod", "qr", "card"],
       required: true,
-      default: "COD",
+      default: "cod",
     },
     itemsPrice: { type: Number, required: true, default: 0 },
     shippingPrice: { type: Number, required: true, default: 0 },

@@ -1,8 +1,8 @@
-import axios from "axios";
+const axios = require("axios");
 
 const ML_BASE_URL = process.env.ML_SERVICE_URL;
 
-export const getHomeRecommendations = async (seed, limit = 4) => {
+const getHomeRecommendations = async (seed, limit = 4) => {
   const { data } = await axios.get(
     `${ML_BASE_URL}/recommend/home`,
     { params: { seed, limit } }
@@ -10,14 +10,14 @@ export const getHomeRecommendations = async (seed, limit = 4) => {
   return data.recommendations;
 };
 
-export const getProductRecommendations = async (externalId) => {
+const getProductRecommendations = async (externalId) => {
   const { data } = await axios.get(
     `${ML_BASE_URL}/recommend/product/${externalId}`
   );
   return data;
 };
 
-export const getCartRecommendations = async (cartExternalIds) => {
+const getCartRecommendations = async (cartExternalIds) => {
   const { data } = await axios.post(
     `${ML_BASE_URL}/recommend/cart`,
     { cartItems: cartExternalIds }
@@ -25,3 +25,8 @@ export const getCartRecommendations = async (cartExternalIds) => {
   return data.recommendations;
 };
 
+module.exports = {
+  getHomeRecommendations,
+  getProductRecommendations,
+  getCartRecommendations
+};

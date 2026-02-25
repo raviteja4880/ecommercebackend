@@ -1,6 +1,7 @@
 const express = require("express");
 const router = express.Router();
 const Order = require("../../models/Order");
+const Payment = require("../../models/Payments");
 const { auth, deliveryOnly } = require("../../middleware/authMiddleware");
 const { sendDeliveryEmail, sendVerifyOtpEmail, resendVerifyOtpEmail } = require("../../utils/email/sendEmail");
 const User = require("../../models/User");
@@ -197,7 +198,7 @@ router.post("/resend-delivery-otp", async (req, res) => {
 // ================== GET ASSIGNED ORDERS ==================
 router.get("/my-orders", auth, deliveryOnly, async (req, res) => {
   try {
-    const orders = await Order.find({ assignedTo: req.user._id, isCanceled: false})
+    const orders = await Order.find({ assignedTo: req.user._id, isCanceled: false })
 
       .populate("user", "name email phone")
       .sort({ createdAt: -1 });
@@ -234,16 +235,26 @@ router.put("/:id/deliver", auth, deliveryOnly, async (req, res) => {
     order.deliveredAt = Date.now();
     order.status = "Delivered";
 
-    // If COD, mark as paid
-    if (order.paymentMethod === "COD" && !order.isPaid) {
+    // If COD, mark as paid (handle both uppercase and lowercase)
+    const paymentMethodLower = order.paymentMethod?.toLowerCase();
+    if (paymentMethodLower === "cod" && !order.isPaid) {
       order.isPaid = true;
       order.paidAt = Date.now();
       order.paymentResult = {
         status: "paid",
-        method: "COD",
+        method: "cod",
         update_time: new Date().toISOString(),
         confirmedBy: req.user.name,
       };
+      
+      // Also update Payment collection if exists
+      await Payment.findOneAndUpdate(
+        { order: order._id, active: true },
+        { 
+          status: 'paid',
+          transactionId: 'COD-' + Date.now()
+        }
+      );
     }
 
     const updatedOrder = await order.save();
@@ -321,7 +332,9 @@ router.put("/:id/mark-paid", auth, deliveryOnly, async (req, res) => {
         .json({ message: "This order is not assigned to you" });
     }
 
-    if (order.paymentMethod !== "COD") {
+    // Check for COD (case insensitive)
+    const paymentMethodLower = order.paymentMethod?.toLowerCase();
+    if (paymentMethodLower !== "cod") {
       return res
         .status(400)
         .json({ message: "Only COD payments can be confirmed manually" });
@@ -335,12 +348,21 @@ router.put("/:id/mark-paid", auth, deliveryOnly, async (req, res) => {
     order.paidAt = Date.now();
     order.paymentResult = {
       status: "paid",
-      method: "COD",
+      method: "cod",
       update_time: new Date().toISOString(),
       confirmedBy: req.user.name || "Delivery Partner",
     };
 
     const updatedOrder = await order.save();
+    
+    // Also update Payment collection if exists
+    await Payment.findOneAndUpdate(
+      { order: order._id, active: true },
+      { 
+        status: 'paid',
+        transactionId: 'COD-' + Date.now()
+      }
+    );
 
     res.json({
       success: true,

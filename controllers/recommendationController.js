@@ -5,6 +5,9 @@ import {
   getHomeRecommendations
 } from "../services/mlService.js";
 
+const homeCache = new Map();
+const pendingRequests = new Map();
+
 const safeArray = (val) => (Array.isArray(val) ? val : []);
 
 const normalizeExternalIds = (items) =>

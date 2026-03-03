@@ -19,36 +19,62 @@ const homeRecommendations = async (req, res) => {
   const userKey = req.query.userKey || "guest";
 
   const now = new Date();
-  const hoursBlock = Math.floor(now.getHours() / 6); // Refresh every 6 hours
+  const hoursBlock = Math.floor(now.getHours() / 6);
   const dateKey = now.toISOString().slice(0, 10);
-
   const seed = `${userKey}-${dateKey}-${hoursBlock}`;
 
   try {
-    let mlResults = [];
-
-    try {
-      mlResults = safeArray(await getHomeRecommendations(seed, 4));
-    } catch (err) {
-      console.warn("[HOME-ML] Failed:", err.message);
+    // RETURN CACHE IF EXISTS
+    if (homeCache.has(seed)) {
+      return res.json(homeCache.get(seed));
     }
 
-    if (!mlResults.length) return res.json([]);
+    // PREVENT DUPLICATE PARALLEL ML CALLS
+    if (pendingRequests.has(seed)) {
+      return res.json(await pendingRequests.get(seed));
+    }
 
-    const productIds = normalizeExternalIds(mlResults);
-    if (!productIds.length) return res.json([]);
+    const promise = (async () => {
+      let mlResults = [];
 
-    const products = await Product.find(
-      { externalId: { $in: productIds } },
-      { __v: 0 }
-    ).lean();
+      try {
+        mlResults = safeArray(await getHomeRecommendations(seed, 4));
+      } catch (err) {
+        console.warn("[HOME-ML] Failed:", err.message);
+      }
 
-    if (!products.length) return res.json([]);
+      if (!mlResults.length) return [];
 
-    const productMap = new Map(products.map(p => [p.externalId, p]));
-    const ordered = productIds.map(id => productMap.get(id)).filter(Boolean);
+      const productIds = normalizeExternalIds(mlResults);
+      if (!productIds.length) return [];
 
-    return res.json(ordered);
+      const products = await Product.find(
+        { externalId: { $in: productIds } },
+        { __v: 0 }
+      ).lean();
+
+      const productMap = new Map(products.map(p => [p.externalId, p]));
+      const ordered = productIds.map(id => productMap.get(id)).filter(Boolean);
+
+      // SAVE TO CACHE
+      homeCache.set(seed, ordered);
+
+      // Auto delete after 6 hours
+      setTimeout(() => {
+        homeCache.delete(seed);
+      }, 6 * 60 * 60 * 1000);
+
+      return ordered;
+    })();
+
+    pendingRequests.set(seed, promise);
+
+    const result = await promise;
+
+    pendingRequests.delete(seed);
+
+    return res.json(result);
+
   } catch (err) {
     console.error("[HOME] Error:", err);
     return res.json([]);

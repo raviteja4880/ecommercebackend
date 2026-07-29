@@ -1,0 +1,191 @@
+const Product = require("../models/Product");
+const {
+  getProductRecommendations,
+  getCartRecommendations,
+  getHomeRecommendations
+} = require("../services/mlService");
+
+const homeCache = new Map();
+const pendingRequests = new Map();
+
+const safeArray = (val) => (Array.isArray(val) ? val : []);
+
+const normalizeExternalIds = (items) =>
+  items
+    .map(p => (typeof p === "string" ? p : p?.externalId))
+    .filter(Boolean);
+
+/* ============================================================
+   HOME PAGE RECOMMENDATIONS
+============================================================ */
+const homeRecommendations = async (req, res) => {
+  const userKey = req.query.userKey || "guest";
+
+  const now = new Date();
+  const hoursBlock = Math.floor(now.getHours() / 6);
+  const dateKey = now.toISOString().slice(0, 10);
+  const seed = `${userKey}-${dateKey}-${hoursBlock}`;
+
+  try {
+    // RETURN CACHE IF EXISTS
+    if (homeCache.has(seed)) {
+      return res.json(homeCache.get(seed));
+    }
+
+    // PREVENT DUPLICATE PARALLEL ML CALLS
+    if (pendingRequests.has(seed)) {
+      return res.json(await pendingRequests.get(seed));
+    }
+
+    const promise = (async () => {
+      let mlResults = [];
+
+      try {
+        mlResults = safeArray(await getHomeRecommendations(seed, 4));
+      } catch (err) {
+        console.warn("[HOME-ML] Failed:", err.message);
+      }
+
+      if (!mlResults.length) return [];
+
+      const productIds = normalizeExternalIds(mlResults);
+      if (!productIds.length) return [];
+
+      const products = await Product.find(
+        { externalId: { $in: productIds } },
+        { __v: 0 }
+      ).lean();
+
+      const productMap = new Map(products.map(p => [p.externalId, p]));
+      const ordered = productIds.map(id => productMap.get(id)).filter(Boolean);
+
+      // SAVE TO CACHE
+      homeCache.set(seed, ordered);
+
+      // Auto delete after 6 hours
+      setTimeout(() => {
+        homeCache.delete(seed);
+      }, 6 * 60 * 60 * 1000);
+
+      return ordered;
+    })();
+
+    pendingRequests.set(seed, promise);
+
+    try {
+      const result = await promise;
+      return res.json(result);
+    } finally {
+      pendingRequests.delete(seed);
+    }
+  } catch (err) {
+    console.error(`[HOME] Error: ${err.message}`);
+    return res.json([]);
+  }
+};
+
+
+/* ============================================================
+   PRODUCT PAGE RECOMMENDATIONS
+============================================================ */
+const productRecommendations = async (req, res) => {
+  const { externalId } = req.params;
+  if (!externalId) return res.json([]);
+
+  try {
+    let mlResults = [];
+
+    try {
+      mlResults = safeArray(await getProductRecommendations(externalId));
+    } catch (err) {
+      console.warn("[PRODUCT-ML] Failed:", err.message);
+    }
+
+    if (!mlResults.length) return res.json([]);
+
+    const productIds = normalizeExternalIds(mlResults);
+    if (!productIds.length) return res.json([]);
+
+    const products = await Product.find(
+      { externalId: { $in: productIds } },
+      { __v: 0 }
+    ).lean();
+
+    if (!products.length) return res.json([]);
+
+    const productMap = new Map(products.map(p => [p.externalId, p]));
+    const ordered = productIds.map(id => productMap.get(id)).filter(Boolean);
+
+    return res.json(ordered);
+  } catch (err) {
+    console.error("[PRODUCT] Error:", err);
+    return res.json([]);
+  }
+};
+
+/* ============================================================
+   CART PAGE RECOMMENDATIONS
+============================================================ */
+const cartRecommendations = async (req, res) => {
+  const cartItems = safeArray(req.body?.cartItems);
+  if (!cartItems.length) return res.json([]);
+
+  try {
+    /* ---------- TRY ML FIRST ---------- */
+    try {
+      const mlResults = safeArray(await getCartRecommendations(cartItems));
+      const productIds = normalizeExternalIds(mlResults);
+
+      if (productIds.length) {
+        const products = await Product.find(
+          { externalId: { $in: productIds } },
+          { __v: 0 }
+        ).lean();
+
+        if (products.length) {
+          const productMap = new Map(products.map(p => [p.externalId, p]));
+          const ordered = productIds.map(id => productMap.get(id)).filter(Boolean);
+          if (ordered.length) return res.json(ordered);
+        }
+      }
+    } catch (err) {
+      console.warn("[CART-ML] Failed:", err.message);
+    }
+
+    /* ---------- FALLBACK ---------- */
+    const cartProducts = await Product.find(
+      { externalId: { $in: cartItems } },
+      { category: 1 }
+    ).lean();
+
+    if (!cartProducts.length) return res.json([]);
+
+    const categoryCount = cartProducts.reduce((acc, p) => {
+      acc[p.category] = (acc[p.category] || 0) + 1;
+      return acc;
+    }, {});
+
+    const sortedCategories = Object.keys(categoryCount).sort(
+      (a, b) => categoryCount[b] - categoryCount[a]
+    );
+
+    const fallbackProducts = await Product.find(
+      {
+        category: { $in: sortedCategories },
+        externalId: { $nin: cartItems }
+      },
+      { __v: 0 }
+    )
+      .sort({ createdAt: -1 })
+      .limit(8)
+      .lean();
+
+    return res.json(fallbackProducts);
+  } catch (err) {
+    console.error("[CART] Error:", err);
+    return res.json([]);
+  }
+};
+
+module.exports = { productRecommendations, cartRecommendations, homeRecommendations };
+
